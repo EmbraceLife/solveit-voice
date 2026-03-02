@@ -11,7 +11,7 @@ const getElevenKey = () => document.documentElement.dataset.solveitElevenKey || 
 const getDname = () => document.documentElement.dataset.solveitDname;
 if (!getDname()) throw new Error('No dname');
 
-const DEBUG = false;
+const DEBUG = true;
 const log = (...args) => { if (DEBUG) console.log('[SV-Voice]', ...args); };
 log('Init, dname:', getDname());
 
@@ -480,6 +480,7 @@ function voiceDisable() {
 function voiceEnable() {
     enabled = true;
     uiEnable();
+    go('idle');
 }
 
 function voiceReinit() {
