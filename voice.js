@@ -305,6 +305,7 @@ btn.onclick = async () => {
         if (transcript.trim()) { const text = transcript; transcript = ''; await doSend(text); }
         else go('idle');
     } else if (state === 'idle') {
+        claimMic();
         transcript = '';
         go('listen', 0);
     }
@@ -359,10 +360,25 @@ rec.onresult = (e) => {
 // --- Toggle handler ---
 toggleCb.onchange = () => {
     ensureAudio();
-    if (toggleCb.checked) go('listen', 100);
+    if (toggleCb.checked) { claimMic(); go('listen', 100); }
     else go('idle');
 };
 go('idle');
+
+// --- Cross-tab mic coordination ---
+const micChannel = new BroadcastChannel('solveit-voice-mic');
+micChannel.onmessage = (e) => {
+    if (e.data?.type === 'claim-mic') {
+        log('Another tab claimed mic, yielding');
+        wasListening = (state === 'listen' || state === 'command');
+        if (wasListening) go('idle');
+    }
+};
+
+function claimMic() {
+    log('Claiming mic');
+    micChannel.postMessage({ type: 'claim-mic' });
+}
 
 // --- Tab visibility ---
 let wasListening = false;
@@ -372,6 +388,7 @@ document.addEventListener('visibilitychange', () => {
         wasListening = (state === 'listen' || state === 'command');
         if (wasListening) go('idle');
     } else {
+        claimMic();
         if (wasListening) go('listen', 100);
     }
 }, { signal: ac.signal });
