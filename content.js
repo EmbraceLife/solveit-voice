@@ -1,5 +1,5 @@
 (async function() {
-    const DEBUG = true;
+    const DEBUG = false;
     const log = (...args) => DEBUG && console.log('[SolveIt Voice]', ...args);
 
     log('content script running, url:', location.href);
@@ -51,6 +51,7 @@
     chrome.runtime.onMessage.addListener((msg) => {
         if (msg.type !== 'solveit-voice-toggle') return;
         if (msg.enabled) {
+            if (!document.getElementById('dialog-container')) { log('toggle on: no dialog-container'); return; }
             if (!document.querySelector('script[data-solveit-voice]')) inject();
             else window.postMessage({ type: 'solveit-voice-enable' }, '*');
         } else {

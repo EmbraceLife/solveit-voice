@@ -11,7 +11,7 @@ const getElevenKey = () => document.documentElement.dataset.solveitElevenKey || 
 const getDname = () => document.documentElement.dataset.solveitDname;
 if (!getDname()) throw new Error('No dname');
 
-const DEBUG = true;
+const DEBUG = false;
 const log = (...args) => { if (DEBUG) console.log('[SV-Voice]', ...args); };
 log('Init, dname:', getDname());
 
@@ -52,7 +52,7 @@ function startRec(delay = CFG.restartMs) {
                 startTimer = null;
                 if (state !== 'listen' && state !== 'command') return;
                 if (!document.hasFocus()) { log('no focus, skip retry'); go('idle'); return; }
-                try { rec.start(); } catch(e2) { log('retry failed:', e2.message); }
+                try { rec.start(); } catch(e2) { log('retry failed:', e2.message); go('idle'); }
             }, CFG.retryMs);
         }
     }, delay);
@@ -474,7 +474,8 @@ const playBtnObserver = new MutationObserver(muts => {
         for (const n of m.addedNodes)
             if (n.nodeType === 1) n.querySelectorAll?.('[data-mtype]').forEach(addPlayBtn);
 });
-playBtnObserver.observe(document.getElementById('dialog-container'), { childList: true });
+const dc = document.getElementById('dialog-container');
+if (dc) playBtnObserver.observe(dc, { childList: true });
 
 // --- Enable / Disable ---
 function voiceDisable() {
