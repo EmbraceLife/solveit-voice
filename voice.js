@@ -11,7 +11,7 @@ const getElevenKey = () => document.documentElement.dataset.solveitElevenKey || 
 const getDname = () => document.documentElement.dataset.solveitDname;
 if (!getDname()) throw new Error('No dname');
 
-const DEBUG = true;
+const DEBUG = false;
 const log = (...args) => { if (DEBUG) console.log('[SV-Voice]', ...args); };
 log('Init, dname:', getDname());
 
@@ -44,14 +44,12 @@ function startRec(delay = CFG.restartMs) {
     startTimer = setTimeout(() => {
         startTimer = null;
         if (state !== 'listen' && state !== 'command') return;
-        if (!document.hasFocus()) { log('no focus, skip rec.start'); go('idle'); return; }
         try { rec.start(); log('rec.start() OK'); }
         catch(e) {
             log('rec.start() failed:', e.message);
             startTimer = setTimeout(() => {
                 startTimer = null;
                 if (state !== 'listen' && state !== 'command') return;
-                if (!document.hasFocus()) { log('no focus, skip retry'); go('idle'); return; }
                 try { rec.start(); } catch(e2) { log('retry failed:', e2.message); go('idle'); }
             }, CFG.retryMs);
         }
@@ -318,12 +316,7 @@ rec.onend = async () => {
     log('rec.onend, state:', state, 'lastErr:', lastRecError);
     const err = lastRecError; lastRecError = null;
     if (state !== 'listen' && state !== 'command') return;
-    if (err === 'aborted') {
-        log('rec aborted, hasFocus:', document.hasFocus());
-        if (document.hasFocus()) go('idle'); // real conflict (e.g. dual monitors)
-        // else: tab switching — visibilitychange will handle it
-        return;
-    }
+    if (err === 'aborted') { log('rec aborted, going idle'); go('idle'); return; }
     if (toggleCb.checked) {
         if (state === 'command' && !silenceTimer) go('listen');
         else startRec(CFG.restartMs);
@@ -373,25 +366,6 @@ toggleCb.onchange = () => {
 };
 go('idle');
 
-// --- Tab visibility: stop rec when hidden, restore on focus ---
-let wasListening = false;
-document.addEventListener('visibilitychange', () => {
-    if (!enabled) return;
-    if (document.hidden) {
-        wasListening = (state === 'listen' || state === 'command');
-        if (wasListening) {
-            state = 'paused';
-            if (startTimer) { clearTimeout(startTimer); startTimer = null; }
-            stopRec();
-            setStatus('⏸ Paused (tab hidden)', CLR.muted);
-        }
-    }
-}, { signal: ac.signal });
-
-window.addEventListener('focus', () => {
-    if (!enabled) return;
-    if (wasListening) { wasListening = false; go('listen', 200); }
-}, { signal: ac.signal });
 
 // --- WS listener for TTS ---
 document.body.addEventListener('htmx:wsAfterMessage', (e) => {
