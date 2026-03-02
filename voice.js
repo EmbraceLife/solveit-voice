@@ -305,7 +305,6 @@ btn.onclick = async () => {
         if (transcript.trim()) { const text = transcript; transcript = ''; await doSend(text); }
         else go('idle');
     } else if (state === 'idle') {
-        claimMic();
         transcript = '';
         go('listen', 0);
     }
@@ -360,7 +359,7 @@ rec.onresult = (e) => {
 // --- Toggle handler ---
 toggleCb.onchange = () => {
     ensureAudio();
-    if (toggleCb.checked) { claimMic(); go('listen', 100); }
+    if (toggleCb.checked) go('listen', 100);
     else go('idle');
 };
 go('idle');
@@ -387,10 +386,13 @@ document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         wasListening = (state === 'listen' || state === 'command');
         if (wasListening) go('idle');
-    } else {
-        claimMic();
-        if (wasListening) go('listen', 100);
     }
+}, { signal: ac.signal });
+
+window.addEventListener('focus', () => {
+    if (!enabled) return;
+    claimMic();
+    if (wasListening) { wasListening = false; go('listen', 100); }
 }, { signal: ac.signal });
 
 // --- WS listener for TTS ---
