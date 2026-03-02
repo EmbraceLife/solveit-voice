@@ -11,7 +11,7 @@ const getElevenKey = () => document.documentElement.dataset.solveitElevenKey || 
 const getDname = () => document.documentElement.dataset.solveitDname;
 if (!getDname()) throw new Error('No dname');
 
-const DEBUG = false;
+const DEBUG = true;
 const log = (...args) => { if (DEBUG) console.log('[SV-Voice]', ...args); };
 log('Init, dname:', getDname());
 
@@ -318,7 +318,12 @@ rec.onend = async () => {
     log('rec.onend, state:', state, 'lastErr:', lastRecError);
     const err = lastRecError; lastRecError = null;
     if (state !== 'listen' && state !== 'command') return;
-    if (err === 'aborted') { log('rec aborted, going idle'); go('idle'); return; }
+    if (err === 'aborted') {
+        log('rec aborted, hasFocus:', document.hasFocus());
+        if (document.hasFocus()) go('idle'); // real conflict (e.g. dual monitors)
+        // else: tab switching — visibilitychange will handle it
+        return;
+    }
     if (toggleCb.checked) {
         if (state === 'command' && !silenceTimer) go('listen');
         else startRec(CFG.restartMs);
