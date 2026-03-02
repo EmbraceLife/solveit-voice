@@ -374,7 +374,12 @@ document.addEventListener('visibilitychange', () => {
     if (!enabled) return;
     if (document.hidden) {
         wasListening = (state === 'listen' || state === 'command');
-        if (wasListening) { stopRec(); state = 'idle'; setStatus('⏸ Paused (tab hidden)', CLR.muted); }
+        if (wasListening) {
+            state = 'paused';
+            if (startTimer) { clearTimeout(startTimer); startTimer = null; }
+            stopRec();
+            setStatus('⏸ Paused (tab hidden)', CLR.muted);
+        }
     }
 }, { signal: ac.signal });
 
