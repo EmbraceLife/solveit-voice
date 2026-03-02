@@ -44,12 +44,14 @@ function startRec(delay = CFG.restartMs) {
     startTimer = setTimeout(() => {
         startTimer = null;
         if (state !== 'listen' && state !== 'command') return;
+        if (!document.hasFocus()) { log('no focus, skip rec.start'); go('idle'); return; }
         try { rec.start(); log('rec.start() OK'); }
         catch(e) {
             log('rec.start() failed:', e.message);
             startTimer = setTimeout(() => {
                 startTimer = null;
                 if (state !== 'listen' && state !== 'command') return;
+                if (!document.hasFocus()) { log('no focus, skip retry'); go('idle'); return; }
                 try { rec.start(); } catch(e2) { log('retry failed:', e2.message); }
             }, CFG.retryMs);
         }
@@ -62,10 +64,9 @@ function go(s, delay = CFG.restartMs) {
     state = s;
     if (s === 'listen') {
         resetCmd();
-        claimMic();
         if (toggleCb.checked) { btn.style.display = 'none'; setStatus('👂 Listening for "Solveit"...', CLR.info); }
         else { btn.textContent = '⏹'; setStatus('🟢 Listening...', CLR.ok); }
-        startRec(Math.max(delay, 200));
+        startRec(delay);
     } else if (s === 'command') {
         beep(CFG.beepFreq, CFG.beepDur);
         setStatus('🟢 Speak your command...', CLR.ok);
@@ -243,9 +244,6 @@ const watchdog = setInterval(() => {
     if (state === 'speak' && ttsProvider.value === 'browser' && !speechSynthesis.speaking && !speechSynthesis.pending) {
         log('Watchdog: TTS stuck'); tts.stop();
     }
-    if (toggleCb.checked && state === 'idle') {
-        log('Watchdog: restarting'); go('listen', 100);
-    }
 }, CFG.watchdogMs);
 
 // --- Send ---
@@ -314,9 +312,13 @@ btn.onclick = async () => {
 // --- Recognition events ---
 rec.onstart = () => { log('rec.onstart, state:', state); };
 
+let lastRecError = null;
+
 rec.onend = async () => {
-    log('rec.onend, state:', state);
+    log('rec.onend, state:', state, 'lastErr:', lastRecError);
+    const err = lastRecError; lastRecError = null;
     if (state !== 'listen' && state !== 'command') return;
+    if (err === 'aborted') { log('rec aborted, going idle'); go('idle'); return; }
     if (toggleCb.checked) {
         if (state === 'command' && !silenceTimer) go('listen');
         else startRec(CFG.restartMs);
@@ -329,6 +331,7 @@ rec.onend = async () => {
 
 rec.onerror = (e) => {
     log('error:', e.error);
+    lastRecError = e.error;
     if (e.error === 'not-allowed') setStatus('❌ Mic permission denied', CLR.err);
     else if (e.error !== 'no-speech' && e.error !== 'aborted') setStatus('⚠️ ' + e.error, CLR.warn);
 };
@@ -365,22 +368,7 @@ toggleCb.onchange = () => {
 };
 go('idle');
 
-// --- Cross-tab mic coordination ---
-const micChannel = new BroadcastChannel('solveit-voice-mic');
-micChannel.onmessage = (e) => {
-    if (e.data?.type === 'claim-mic') {
-        log('Another tab claimed mic, yielding');
-        wasListening = (state === 'listen' || state === 'command');
-        if (wasListening) go('idle');
-    }
-};
-
-function claimMic() {
-    log('Claiming mic');
-    micChannel.postMessage({ type: 'claim-mic' });
-}
-
-// --- Tab visibility ---
+// --- Tab visibility: stop rec when hidden, restore on focus ---
 let wasListening = false;
 document.addEventListener('visibilitychange', () => {
     if (!enabled) return;
@@ -392,7 +380,7 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('focus', () => {
     if (!enabled) return;
-    if (wasListening) { wasListening = false; go('listen', 150); }
+    if (wasListening) { wasListening = false; go('listen', 200); }
 }, { signal: ac.signal });
 
 // --- WS listener for TTS ---
