@@ -1,7 +1,7 @@
 import { CLR, btn, ttsStopBtn, setStatus, autoCb, toggleCb, ttsCb, ttsManualCb,
          ensureAudio, getAudioCtx, beep, ttsRate, ttsPitch, elevenLabsCb, openAiCb,
          openAiKeyInput, elevenKeyInput, openAiModel, openAiVoice, ttsProvider, ac,
-         disable as uiDisable, enable as uiEnable, reinit as uiReinit } from './ui.js';
+         disable as uiDisable, enable as uiEnable, reinit as uiReinit, msgType } from './ui.js';
 
 const ELEVEN_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'; // George
 let enabled = true;
@@ -253,7 +253,7 @@ async function sendTranscript(text) {
     try {
         const body = new URLSearchParams({
             dlg_name: getDname(), content: (autoCb.checked ? '🎤 Voice [autorun]: ' : '🎤 Voice: ') + text,
-            msg_type: 'prompt', placement: 'at_end', run_mode: 'run'
+            msg_type: msgType, placement: 'at_end', run_mode: msgType === 'prompt' ? 'run' : 'no_run'
         });
         const resp = await fetch('/add_relative_', { method: 'POST', body });
         if (resp.ok) setStatus('✅ Sent!', CLR.ok);

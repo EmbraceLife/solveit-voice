@@ -185,9 +185,43 @@ gearBtn.onmouseenter = () => setGear(true);
 gearBtn.onmouseleave = () => { if (!ddOpen) setGear(false); };
 gearBtn.onclick = (e) => { e.stopPropagation(); ddOpen = !ddOpen; dropdown.style.display = ddOpen ? 'block' : 'none'; setGear(ddOpen); };
 
+// --- Message type selector ---
+const MSG_TYPES = [
+    { type: 'prompt', color: '#e74c3c', label: 'Prompt' },
+    { type: 'code',   color: '#4a90e2', label: 'Code' },
+    { type: 'note',   color: '#2ecc71', label: 'Note' },
+    { type: 'raw',    color: '#f7e017', label: 'Raw' },
+];
+export let msgType = 'prompt';
+
+const msgTypeDot = el('button', 'v-gear', { title: 'Message type' });
+msgTypeDot.style.cssText = 'width:20px;height:20px;border-radius:50%;padding:0;margin-right:4px;border:2px solid rgba(255,255,255,0.3)';
+const setMsgTypeDot = (t) => { msgType = t; msgTypeDot.style.background = MSG_TYPES.find(m => m.type === t).color; };
+setMsgTypeDot('prompt');
+
+const msgTypeDropdown = el('div', null);
+msgTypeDropdown.style.cssText = 'position:absolute;right:0;bottom:42px;background:rgba(30,30,50,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:6px 10px;display:none;gap:8px;flex-direction:column;min-width:90px;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
+MSG_TYPES.forEach(({ type, color, label }) => {
+    const row = el('div', null);
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 0';
+    const dot = el('span');
+    dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block`;
+    const lbl = el('span', null, { textContent: label });
+    lbl.style.cssText = 'color:#ccc;font-size:0.82em';
+    row.append(dot, lbl);
+    row.onclick = (e) => { e.stopPropagation(); setMsgTypeDot(type); msgTypeDropdown.style.display = 'none'; mtOpen = false; };
+    msgTypeDropdown.append(row);
+});
+
+let mtOpen = false;
+msgTypeDot.onclick = (e) => { e.stopPropagation(); mtOpen = !mtOpen; msgTypeDropdown.style.display = mtOpen ? 'flex' : 'none'; };
+
+const msgTypeWrap = el('div', 'v-gear-wrap');
+msgTypeWrap.append(msgTypeDot, msgTypeDropdown);
+
 const gearWrap = el('div', 'v-gear-wrap');
 gearWrap.append(gearBtn, dropdown);
-div.append(btn, ttsStopBtn, status, gearWrap);
+div.append(btn, ttsStopBtn, status, msgTypeWrap, gearWrap);
 document.getElementById('solveit-voice')?.remove();
 document.body.appendChild(div);
 
@@ -223,6 +257,7 @@ document.addEventListener('mouseup', () => { if (isDragging) { isDragging = fals
 // --- Close dropdown on outside click ---
 document.addEventListener('click', (e) => {
     if (ddOpen && !dropdown.contains(e.target) && e.target !== gearBtn) { ddOpen = false; dropdown.style.display = 'none'; setGear(false); }
+    if (mtOpen && !msgTypeDropdown.contains(e.target) && e.target !== msgTypeDot) { mtOpen = false; msgTypeDropdown.style.display = 'none'; }
 }, { signal: ac.signal });
 
 export { CLR };
