@@ -19,8 +19,6 @@ const CFG = {
     confirmDur: 150, ttsRate: 1.0, ttsVoice: 'Google UK English Male',
 };
 
-const ac = new AbortController();
-
 // --- Speech Recognition ---
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) { setStatus('❌ Speech API not supported'); throw new Error('No SR'); }
