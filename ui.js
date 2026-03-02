@@ -1,4 +1,5 @@
 const CLR = { ok: '#6bff6b', info: '#6bc5ff', warn: '#ffd93d', err: '#ff6b6b', muted: '#aaa' };
+export const ac = new AbortController();
 
 const styleEl = document.createElement('style');
 styleEl.id = 'solveit-voice-styles';
@@ -213,7 +214,6 @@ div.addEventListener('mousedown', (e) => {
     dragY = e.clientY - div.getBoundingClientRect().top;
     div.style.cursor = 'grabbing';
 }, { signal: ac.signal });
-export const ac = new AbortController();
 document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     Object.assign(div.style, { left: (e.clientX-dragX)+'px', top: (e.clientY-dragY)+'px', right: 'auto', bottom: 'auto' });
