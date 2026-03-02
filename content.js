@@ -32,7 +32,9 @@
 
     async function tryInit() {
         if (!document.getElementById('dialog-container')) { log('no dialog-container'); return; }
-        const { enabled = true } = await chrome.storage.local.get('enabled');
+        let enabled = true;
+        try { ({ enabled = true } = await chrome.storage.local.get('enabled')); }
+        catch(e) { log('extension context invalidated, skipping'); return; }
         if (!enabled) { log('disabled, skipping'); return; }
         if (document.querySelector('script[data-solveit-voice]')) {
             const dname = new URLSearchParams(window.location.search).get('name')
