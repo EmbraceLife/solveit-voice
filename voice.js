@@ -374,7 +374,7 @@ document.addEventListener('visibilitychange', () => {
     if (!enabled) return;
     if (document.hidden) {
         wasListening = (state === 'listen' || state === 'command');
-        if (wasListening) go('idle');
+        if (wasListening) { stopRec(); state = 'idle'; setStatus('⏸ Paused (tab hidden)', CLR.muted); }
     }
 }, { signal: ac.signal });
 
