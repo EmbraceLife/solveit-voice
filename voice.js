@@ -1,7 +1,8 @@
 import { CLR, btn, ttsStopBtn, setStatus, autoCb, toggleCb, ttsCb, ttsManualCb,
          ensureAudio, getAudioCtx, beep, ttsRate, ttsPitch, elevenLabsCb, openAiCb,
          openAiKeyInput, elevenKeyInput, openAiModel, openAiVoice, ttsProvider, ac,
-         disable as uiDisable, enable as uiEnable, reinit as uiReinit, msgType } from './ui.js';
+         disable as uiDisable, enable as uiEnable, reinit as uiReinit, msgType,
+         anchorCb, anchorId } from './ui.js';
 
 const ELEVEN_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb'; // George
 let enabled = true;
@@ -250,8 +251,9 @@ async function sendTranscript(text) {
     try {
         const params = {
             dlg_name: getDname(), content: (autoCb.checked ? '🎤 Voice [autorun]: ' : '🎤 Voice: ') + text,
-            msg_type: msgType, placement: 'at_end'
+            msg_type: msgType, placement: anchorId ? 'add_before' : 'at_end'
         };
+        if (anchorId) params.id_ = anchorId;
         // Only prompts auto-run. The server treats ANY run_mode string as truthy,
         // so we must OMIT the key entirely for code/note messages (not send 'no_run').
         if (msgType === 'prompt') params.run_mode = 'run';

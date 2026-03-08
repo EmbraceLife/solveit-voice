@@ -16,6 +16,7 @@ styleEl.textContent = `
     #solveit-voice .v-thumb { position:absolute;top:1px;width:12px;height:12px;border-radius:50%;transition:all 0.2s }
     #solveit-voice .v-gear-wrap { position:relative;display:flex;align-items:center }
     #solveit-voice .v-divider { border:none;border-top:1px solid rgba(255,255,255,0.08);margin:4px 14px }
+    #solveit-voice .v-anchor-label { padding:2px 14px 6px;color:#ffd93d;font-size:0.72em;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
     #solveit-voice .v-row { display:flex;align-items:center;padding:6px 14px;color:#ccc;font-size:0.82em;gap:8px }
     #solveit-voice .v-row label { width:80px;flex-shrink:0 }
     #solveit-voice .v-row input[type=range] { flex:1;accent-color:#6bff6b }
@@ -45,6 +46,7 @@ function makeSwitch(label, obj) {
     track.append(thumb);
     row.append(el('span', null, { textContent: label }), track);
     row.onclick = () => { obj.checked = !obj.checked; render(); obj.onchange?.(); };
+    row._render = render;
     return row;
 }
 
@@ -89,6 +91,8 @@ export const ttsCb = { checked: true };
 export const ttsManualCb = { checked: false };
 export const ttsRate = { value: 1.15 };
 export const ttsPitch = { value: 1.05 };
+export const anchorCb = { checked: false };
+export let anchorId = null;
 
 // ttsProvider: 'browser' | 'openai' | 'elevenlabs'
 export const ttsProvider = { value: 'browser' };
@@ -115,6 +119,31 @@ const dropdown = el('div', 'v-dropdown');
 // Main toggles
 [['Auto-run code', autoCb], ['Continuous mode', toggleCb], ['TTS voice prompt', ttsCb], ['TTS manual prompt', ttsManualCb]]
     .forEach(([l, o]) => dropdown.append(makeSwitch(l, o)));
+
+// --- Anchor selection toggle + label ---
+const anchorLabel = el('div', 'v-anchor-label');
+anchorLabel.textContent = '📌 (none — using end)';
+anchorCb.onchange = () => {
+    if (anchorCb.checked) setStatus('📌 Click a message to set anchor...', CLR.warn);
+    else setStatus(toggleCb.checked ? '👂 Listening...' : 'Click mic to start');
+};
+const anchorSwitchRow = makeSwitch('Select anchor', anchorCb);
+dropdown.append(anchorSwitchRow);
+dropdown.append(anchorLabel);
+
+// --- Anchor click handler (one-shot: click message → set anchor → auto-off) ---
+document.addEventListener('click', (e) => {
+    if (!anchorCb.checked) return;
+    const wrapper = e.target.closest('[data-sm]');
+    if (!wrapper) return;
+    const msgId = wrapper.id;
+    if (!msgId) return;
+    anchorId = msgId;
+    anchorLabel.textContent = '📌 ' + anchorId;
+    anchorCb.checked = false;
+    anchorSwitchRow._render();  // Sync visual toggle to match checked=false
+    setStatus('📌 Anchor set: ' + anchorId, CLR.ok);
+}, { signal: ac.signal });
 
 dropdown.append(el('hr', 'v-divider'));
 
