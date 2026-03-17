@@ -84,9 +84,9 @@ ttsStopBtn.style.display = 'none';
 // instead of real HTML checkboxes. makeSwitch() reads/writes .checked
 // and calls .onchange() when the user clicks the toggle.
 const autoCb = { checked: false };       // Auto-run OFF by default
-const toggleCb = { checked: true };      // Continuous ON by default
-const ttsCb = { checked: true };         // TTS voice ON by default
-const ttsManualCb = { checked: true };   // TTS manual ON by default
+const toggleCb = { checked: false };     // Continuous OFF by default
+const ttsCb = { checked: false };        // TTS voice OFF by default
+const ttsManualCb = { checked: false };  // TTS manual OFF by default
 const anchorCb = { checked: false };     // Select anchor OFF by default
 const porcupineCb = { checked: false };  // Porcupine wake word OFF by default
 let anchorId = null;

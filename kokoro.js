@@ -104,7 +104,7 @@ function replicateFetch(url, opts = {}) {
 }
 
 // --- Replicate API: Create prediction and poll until done ---
-async function replicatePredict(text, voice = 'bf_emma', speed = 1.0) {
+async function replicatePredict(text, voice = 'af_bella', speed = 0.9) {
     const apiKey = getReplicateKey();
     if (!apiKey) throw new Error('No Replicate API key — set it in extension popup');
 
