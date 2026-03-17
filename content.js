@@ -58,6 +58,13 @@
     return;
   }
 
+  // DESIGN: Extract dialog name from URL query param or hidden input.
+  // widget.js reads this via getDname() for HTTP POST to /add_relative_.
+  const dname = new URLSearchParams(location.search).get('name')
+      || document.getElementById('dlg_name')?.value;
+  if (!dname) { log('no dname found, skipping injection'); return; }
+  document.documentElement.dataset.solveitDname = dname;
+
   document.documentElement.dataset.solveitPorcupineKey = keys.porcupineKey || '';
   document.documentElement.dataset.solveitReplicateKey = keys.replicateKey || '';
 
@@ -74,6 +81,23 @@
     if (changes.enabled && !changes.enabled.newValue) {
       log('extension disabled, cleaning up');
       if (window._voiceCleanup) window._voiceCleanup();
+    }
+  });
+
+  // --- Bridge: MAIN world → content script → background service worker ---
+  // DESIGN: Scripts in MAIN world can't call chrome.runtime.sendMessage().
+  // So kokoro.js posts a window message, content.js catches it here,
+  // forwards to background.js, and posts the response back.
+  window.addEventListener('message', async (e) => {
+    if (e.source !== window || e.data?.type !== 'replicate-fetch') return;
+    const { url, method, headers, body, requestId } = e.data;
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'replicate-fetch', url, method, headers, body
+      });
+      window.postMessage({ type: 'replicate-fetch-response', requestId, ...resp }, '*');
+    } catch (err) {
+      window.postMessage({ type: 'replicate-fetch-response', requestId, ok: false, error: err.message }, '*');
     }
   });
 

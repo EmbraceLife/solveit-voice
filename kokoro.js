@@ -76,21 +76,47 @@ V.ttsEnd = () => {
     origTtsEnd();
 };
 
+// --- Bridge helper: send fetch request via content.js → background.js ---
+// DESIGN: MAIN world scripts can't call chrome.runtime.sendMessage().
+// Instead, we postMessage to window, content.js catches it and forwards
+// to background.js (service worker), which does the actual fetch.
+let _reqCounter = 0;
+function replicateFetch(url, opts = {}) {
+    return new Promise((resolve, reject) => {
+        const requestId = 'rf-' + (++_reqCounter) + '-' + Date.now();
+        function handler(e) {
+            if (e.source !== window || e.data?.type !== 'replicate-fetch-response') return;
+            if (e.data.requestId !== requestId) return;
+            window.removeEventListener('message', handler);
+            if (e.data.ok) resolve(e.data.data);
+            else reject(new Error(e.data.error || 'Replicate fetch failed: ' + e.data.status));
+        }
+        window.addEventListener('message', handler);
+        window.postMessage({
+            type: 'replicate-fetch', requestId, url,
+            method: opts.method || 'GET',
+            headers: opts.headers || {},
+            body: opts.body || undefined
+        }, '*');
+        // Safety timeout — don't hang forever
+        setTimeout(() => { window.removeEventListener('message', handler); reject(new Error('Replicate fetch timeout')); }, 120000);
+    });
+}
+
 // --- Replicate API: Create prediction and poll until done ---
 async function replicatePredict(text, voice = 'bf_emma', speed = 1.0) {
     const apiKey = getReplicateKey();
     if (!apiKey) throw new Error('No Replicate API key — set it in extension popup');
 
-    // DESIGN: Parse "owner/model:version" format to extract version hash
     const versionHash = KOKORO_VERSION.split(':')[1];
 
-    // Step 1: Create prediction
-    const createResp = await fetch('https://api.replicate.com/v1/predictions', {
+    // Step 1: Create prediction (via background service worker)
+    const prediction = await replicateFetch('https://api.replicate.com/v1/predictions', {
         method: 'POST',
         headers: {
             'Authorization': 'Bearer ' + apiKey,
             'Content-Type': 'application/json',
-            'Prefer': 'wait'  // DESIGN: Server waits up to 60s for completion
+            'Prefer': 'wait'
         },
         body: JSON.stringify({
             version: versionHash,
@@ -98,29 +124,21 @@ async function replicatePredict(text, voice = 'bf_emma', speed = 1.0) {
         })
     });
 
-    if (!createResp.ok) {
-        const err = await createResp.text();
-        throw new Error('Replicate API error: ' + createResp.status + ' ' + err);
-    }
-
-    let prediction = await createResp.json();
-
-    // Step 2: Poll if not yet complete (Prefer:wait usually returns complete)
+    // Step 2: Poll if not yet complete
+    let result = prediction;
     let attempts = 0;
-    while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 60) {
+    while (result.status !== 'succeeded' && result.status !== 'failed' && attempts < 60) {
         await new Promise(r => setTimeout(r, 1000));
-        const pollResp = await fetch('https://api.replicate.com/v1/predictions/' + prediction.id, {
+        result = await replicateFetch('https://api.replicate.com/v1/predictions/' + result.id, {
             headers: { 'Authorization': 'Bearer ' + apiKey }
         });
-        prediction = await pollResp.json();
         attempts++;
     }
 
-    if (prediction.status === 'failed') throw new Error('Kokoro prediction failed: ' + (prediction.error || 'unknown'));
-    if (prediction.status !== 'succeeded') throw new Error('Kokoro prediction timed out');
+    if (result.status === 'failed') throw new Error('Kokoro failed: ' + (result.error || 'unknown'));
+    if (result.status !== 'succeeded') throw new Error('Kokoro timed out');
 
-    // DESIGN: Output is the audio URL (direct link to WAV/MP3 file)
-    return prediction.output;
+    return result.output;
 }
 
 // --- Main speak function ---
