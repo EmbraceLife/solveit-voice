@@ -139,11 +139,13 @@
 }
 
 /* --- Kokoro Audio Container --- */
+/* DESIGN: Now a child of #voice-widget — no fixed positioning needed.
+   Widget drag moves it automatically. */
 #kokoro-audio-container {
   display: none;
-  position: fixed;
-  bottom: 10px;
-  right: 8px;
+  position: absolute;
+  bottom: -70px;
+  left: 0;
   z-index: 9998;
   background: rgba(15, 15, 25, 0.85);
   backdrop-filter: blur(12px);

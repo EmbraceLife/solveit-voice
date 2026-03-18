@@ -47,7 +47,8 @@ const audio = document.createElement('audio');
 audio.controls = true;
 audio.style.cssText = 'width:100%;height:48px;border-radius:8px';
 ac.appendChild(audio);
-document.body.appendChild(ac);
+// DESIGN: Attach to voice widget so it drags along — no extra drag code needed
+(V.widget || document.body).appendChild(ac);
 
 function resetAudio() {
     audio.pause(); audio.removeAttribute('src'); audio.load();
