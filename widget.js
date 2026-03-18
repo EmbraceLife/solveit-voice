@@ -119,7 +119,7 @@ let lastSelectedPresetIdx = -1;
 // localStorage is available in MAIN world — no bridge needed.
 // Follows context_token_counter pattern: key by dialog name.
 const PRESETS_KEY = 'voice_presets';
-const ANCHOR_KEY = 'voice_anchor_' + (location.pathname.split('/').filter(Boolean).slice(0, -1).join('/') || 'default');
+const ANCHOR_KEY = 'voice_anchor_' + _edVar('dlg_name');
 
 function savePresets() {
     try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); log('Presets saved:', presets.length); }
