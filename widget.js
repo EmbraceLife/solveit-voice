@@ -113,6 +113,37 @@ const DEFAULT_PRESETS = [
     { name: 'Backup to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path.' }
 ];
 let presets = [...DEFAULT_PRESETS];
+let lastSelectedPresetIdx = -1;
+
+// DESIGN: Persist presets via postMessage bridge to content.js.
+// MAIN world scripts can't access chrome.storage.local directly,
+// so we post messages that content.js catches and forwards to storage.
+function savePresets() {
+    window.postMessage({ type: 'voice-presets-save', presets }, '*');
+    log('Presets save requested:', presets.length);
+}
+function loadPresets() {
+    window.postMessage({ type: 'voice-presets-load' }, '*');
+    log('Presets load requested');
+}
+// DESIGN: content.js responds with voice-presets-loaded message
+// containing the saved presets array from chrome.storage.local.
+window.addEventListener('message', (e) => {
+    if (e.source !== window) return;
+    if (e.data?.type === 'voice-presets-loaded' && e.data.presets && e.data.presets.length) {
+        presets = e.data.presets;
+        log('Presets loaded from storage:', presets.length);
+        buildPresetMenu();
+    }
+    if (e.data?.type === 'voice-anchor-loaded' && e.data.anchorId) {
+        anchorId = e.data.anchorId;
+        anchorLabel.textContent = '📌 ' + anchorId;
+        log('Anchor loaded from storage:', anchorId);
+    }
+});
+function loadAnchor() {
+    window.postMessage({ type: 'voice-anchor-load' }, '*');
+}
 
 // --- Expose shared state under single namespace ---
 const V = window._voice = { ttsStopBtn, ttsCb, ttsManualCb, toggleCb, speaking: false, log, CFG, CLR };
@@ -214,7 +245,7 @@ function buildPresetMenu() {
         item.style.cssText = 'padding:6px 12px;cursor:pointer;color:#ccc;font-size:0.8em';
         item.textContent = p.name;
         // DESIGN: Single click selects preset and closes menu
-        item.onclick = (e) => { e.stopPropagation(); promptText = p.text; presetMenu.style.display = 'none'; setStatus('📋 ' + p.name, CLR.info); log('Preset selected:', p.name); };
+        item.onclick = (e) => { e.stopPropagation(); promptText = p.text; lastSelectedPresetIdx = i; presetMenu.style.display = 'none'; setStatus('📋 ' + p.name, CLR.info); log('Preset selected:', p.name, 'idx:', i); };
         // DESIGN: Double click opens editor with this preset's text
         item.ondblclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; openPresetEditor(p.text, i); };
         item.onmouseenter = () => { item.style.background = 'rgba(255,255,255,0.08)'; };
@@ -231,8 +262,13 @@ function buildPresetMenu() {
     presetMenu.appendChild(custom);
 }
 buildPresetMenu();
+loadPresets();
+loadAnchor();
 
 // Preset editor overlay
+// DESIGN: Three buttons — Cancel (discard), Use (temporary), Save (persistent).
+// For existing presets, Save overwrites the text in storage.
+// For new/custom presets, Save prompts for a title then adds to the list.
 function openPresetEditor(text, editIndex) {
     const overlay = el('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center';
@@ -243,19 +279,42 @@ function openPresetEditor(text, editIndex) {
     ta.value = text;
     const btnRow = el('div');
     btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end';
+
+    // Cancel — discard changes
     const cancelBtn = el('button', null, { textContent: 'Cancel' });
     cancelBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.1);color:#ccc;padding:6px 14px;border-radius:6px;cursor:pointer';
     cancelBtn.onclick = () => overlay.remove();
-    const saveBtn = el('button', null, { textContent: 'Use' });
-    saveBtn.style.cssText = 'border:none;background:#2563eb;color:white;padding:6px 14px;border-radius:6px;cursor:pointer';
-    saveBtn.onclick = () => {
+
+    // Use — temporary, just sets promptText for this session
+    const useBtn = el('button', null, { textContent: 'Use' });
+    useBtn.style.cssText = 'border:none;background:#2563eb;color:white;padding:6px 14px;border-radius:6px;cursor:pointer';
+    useBtn.onclick = () => {
         promptText = ta.value.trim();
-        if (editIndex >= 0 && editIndex < presets.length) presets[editIndex].text = promptText;
         overlay.remove();
         setStatus('📋 Prompt set (' + promptText.length + ' chars)', CLR.info);
     };
+
+    // Save — persistent, writes to chrome.storage.local
+    const persistBtn = el('button', null, { textContent: 'Save' });
+    persistBtn.style.cssText = 'border:none;background:#27ae60;color:white;padding:6px 14px;border-radius:6px;cursor:pointer';
+    persistBtn.onclick = () => {
+        const newText = ta.value.trim();
+        if (!newText) { setStatus('Cannot save empty preset', CLR.warn); return; }
+
+        if (editIndex >= 0 && editIndex < presets.length) {
+            // DESIGN: Existing preset — open title prompt with current name pre-filled
+            overlay.remove();
+            openTitlePrompt(newText, presets[editIndex].name, editIndex);
+        } else {
+            // DESIGN: New preset — prompt for title with blank input
+            overlay.remove();
+            openTitlePrompt(newText);
+        }
+    };
+
     btnRow.appendChild(cancelBtn);
-    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(useBtn);
+    btnRow.appendChild(persistBtn);
     box.appendChild(ta);
     box.appendChild(btnRow);
     overlay.appendChild(box);
@@ -264,9 +323,62 @@ function openPresetEditor(text, editIndex) {
     ta.focus();
 }
 
+// DESIGN: Title prompt for saving presets (new or existing).
+// For existing presets, pre-fills with current name so user can keep or change it.
+// For new presets, shows blank input.
+function openTitlePrompt(presetText, existingName, editIndex) {
+    const overlay = el('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10002;display:flex;align-items:center;justify-content:center';
+    const box = el('div');
+    box.style.cssText = 'background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:16px;width:320px;max-width:90vw';
+    const label = el('div');
+    label.style.cssText = 'color:#ccc;font-size:0.85em;margin-bottom:8px';
+    label.textContent = 'Name this preset:';
+    const input = el('input');
+    input.style.cssText = 'width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:13px;padding:8px;font-family:system-ui';
+    input.placeholder = 'e.g. Summarize Section';
+    if (existingName) input.value = existingName;
+    const btnRow = el('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end';
+    const cancelBtn = el('button', null, { textContent: 'Cancel' });
+    cancelBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.1);color:#ccc;padding:6px 14px;border-radius:6px;cursor:pointer';
+    cancelBtn.onclick = () => overlay.remove();
+    const saveBtn = el('button', null, { textContent: 'Save' });
+    saveBtn.style.cssText = 'border:none;background:#27ae60;color:white;padding:6px 14px;border-radius:6px;cursor:pointer';
+    saveBtn.onclick = () => {
+        const name = input.value.trim();
+        if (!name) { input.style.borderColor = '#e74c3c'; return; }
+        if (editIndex >= 0 && editIndex < presets.length) {
+            // DESIGN: Update existing preset — change name and/or text
+            presets[editIndex] = { name, text: presetText };
+            setStatus('💾 Updated: ' + name, CLR.ok);
+            log('Preset updated:', name);
+        } else {
+            // DESIGN: Create new preset
+            presets.push({ name, text: presetText });
+            setStatus('💾 New preset: ' + name, CLR.ok);
+            log('New preset created:', name, '(' + presets.length + ' total)');
+        }
+        promptText = presetText;
+        savePresets();
+        buildPresetMenu();
+        overlay.remove();
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.onclick(); };
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
+    box.appendChild(label);
+    box.appendChild(input);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    input.focus();
+}
+
 let presetMenuOpen = false;
 presetArrow.onclick = (e) => { e.stopPropagation(); presetMenuOpen = !presetMenuOpen; presetMenu.style.display = presetMenuOpen ? 'block' : 'none'; };
-presetBtn.onclick = (e) => { e.stopPropagation(); openPresetEditor(promptText, -1); };
+presetBtn.onclick = (e) => { e.stopPropagation(); openPresetEditor(promptText, lastSelectedPresetIdx); };
 
 presetWrap.appendChild(presetBtn);
 presetWrap.appendChild(presetArrow);
@@ -351,6 +463,8 @@ document.addEventListener('click', (e) => {
     anchorSwitch.render();
     setStatus('📌 Anchor set: ' + anchorId, CLR.ok);
     log('Anchor set:', anchorId);
+    // DESIGN: Persist anchor to storage so it survives refresh
+    window.postMessage({ type: 'voice-anchor-save', anchorId }, '*');
 }, sig);
 
 const gearWrap = el('div', 'v-gear-wrap');
