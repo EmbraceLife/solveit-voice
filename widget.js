@@ -91,14 +91,28 @@ const anchorCb = { checked: false };     // Select anchor OFF by default
 const porcupineCb = { checked: false };  // Porcupine wake word OFF by default
 let anchorId = null;
 
-// --- Message Type Toggle ---
-// DESIGN: Cycles through prompt/code/note on click. Only prompts auto-run.
-const MSG_TYPES = [
-    { type: 'prompt', color: '#e74c3c', label: 'Prompt' },
-    { type: 'code',   color: '#4a90e2', label: 'Code' },
-    { type: 'note',   color: '#2ecc71', label: 'Note' }
+// --- Send Mode (replaces message type toggle) ---
+// DESIGN: Three send modes — prompt_run sends + auto-runs,
+// prompt sends without running, note creates a note message.
+const SEND_MODES = [
+    { mode: 'prompt_run', color: '#e74c3c', label: 'Send to Prompt & Run', icon: '▶' },
+    { mode: 'prompt',     color: '#f39c12', label: 'Send to Prompt',       icon: '📝' },
+    { mode: 'note',       color: '#2ecc71', label: 'Send to Note',         icon: '📋' }
 ];
-let msgType = 'prompt';
+let sendMode = 'prompt_run';
+let promptText = '';
+
+// --- Preset Prompts ---
+// DESIGN: Quick-access prompts for common actions. User can select
+// a preset, then click send — two clicks for repetitive tasks.
+const DEFAULT_PRESETS = [
+    { name: 'Build Section TOC', text: 'Build a ## 📑 Section TOC note for the current H1 section. Use your memory — do NOT use tool calls to read messages. For each prompt, summarize the core idea from its OUTPUT (the output is what matters most) and use that as the link description. Format as numbered list: 1. <a href=\"#_id\">summary of prompt output essential idea</a>. Each item links to one prompt. Place the TOC note right after the H1 heading.' },
+    { name: 'Update Section TOC', text: 'Update the existing ## 📑 Section TOC for this section. Use your memory — no tool calls to read messages. Only add entries for new important prompts whose outputs have substantial content. Summarize the core idea from each output as the link description. Keep existing entries intact.' },
+    { name: 'Download Extension', text: 'Run download_folder for the Chrome extension folder in the current directory so I can test it locally.' },
+    { name: 'Push Repo to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then push the cloned repo using push_repo_to_github(), and backup the instance with backup_to_github() using the correct dialog path in the commit message.' },
+    { name: 'Backup to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path.' }
+];
+let presets = [...DEFAULT_PRESETS];
 
 // --- Expose shared state under single namespace ---
 const V = window._voice = { ttsStopBtn, ttsCb, ttsManualCb, toggleCb, speaking: false, log, CFG, CLR };
@@ -144,6 +158,7 @@ const gearBtn = el('button', 'v-gear', { textContent: '⚙️', title: 'Settings
 gearBtn.onmouseenter = () => setGearStyle(true);
 gearBtn.onmouseleave = () => { if (!ddOpen) setGearStyle(false); };
 const dropdown = el('div', 'v-dropdown');
+dropdown.id = 'voice-gear-dropdown';
 
 const autoSwitch = makeSwitch('Auto-run code', autoCb);
 const contSwitch = makeSwitch('Continuous mode', toggleCb);
@@ -177,17 +192,136 @@ porcupineCb.onchange = () => {
     }
 };
 
-// --- Message Type Dot ---
-const msgTypeDot = el('button', 'v-gear', { title: 'Message type' });
-msgTypeDot.style.cssText = 'width:20px;height:20px;border-radius:50%;padding:0;margin-right:4px;border:2px solid rgba(255,255,255,0.3)';
-const setMsgTypeDot = (t) => { msgType = t; msgTypeDot.style.background = MSG_TYPES.find(m => m.type === t).color; };
-setMsgTypeDot('prompt');
-msgTypeDot.onclick = () => {
-    const idx = MSG_TYPES.findIndex(m => m.type === msgType);
-    const next = MSG_TYPES[(idx + 1) % MSG_TYPES.length];
-    setMsgTypeDot(next.type);
-    setStatus('Message type: ' + next.label, next.color);
+// --- Preset Prompts Dropdown ---
+// DESIGN: Split button — left shows current preset name (click to open editor),
+// right arrow opens dropdown of preset prompts. Follows solveit-canvas pattern.
+const presetWrap = el('div', 'v-gear-wrap');
+presetWrap.style.cssText = 'position:relative;display:flex;align-items:center';
+
+const presetBtn = el('button', null, { textContent: '📋', title: 'Preset prompts' });
+presetBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.08);border-radius:6px 0 0 6px;padding:4px 8px;cursor:pointer;font-size:0.85em;color:#ccc;height:28px;border-right:1px solid rgba(255,255,255,0.1)';
+
+const presetArrow = el('button', null, { textContent: '▾', title: 'Choose preset' });
+presetArrow.style.cssText = 'border:none;background:rgba(255,255,255,0.08);border-radius:0 6px 6px 0;padding:4px 6px;cursor:pointer;font-size:0.75em;color:#ccc;height:28px';
+
+const presetMenu = el('div', 'v-dropdown');
+presetMenu.style.cssText += ';bottom:36px;right:auto;left:0;min-width:220px;max-height:260px;overflow-y:auto';
+
+function buildPresetMenu() {
+    presetMenu.innerHTML = '';
+    presets.forEach((p, i) => {
+        const item = el('div', 'v-switch-row');
+        item.style.cssText = 'padding:6px 12px;cursor:pointer;color:#ccc;font-size:0.8em';
+        item.textContent = p.name;
+        // DESIGN: Single click selects preset and closes menu
+        item.onclick = (e) => { e.stopPropagation(); promptText = p.text; presetMenu.style.display = 'none'; setStatus('📋 ' + p.name, CLR.info); log('Preset selected:', p.name); };
+        // DESIGN: Double click opens editor with this preset's text
+        item.ondblclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; openPresetEditor(p.text, i); };
+        item.onmouseenter = () => { item.style.background = 'rgba(255,255,255,0.08)'; };
+        item.onmouseleave = () => { item.style.background = 'none'; };
+        presetMenu.appendChild(item);
+    });
+    // "Custom..." option at bottom
+    const custom = el('div', 'v-switch-row');
+    custom.style.cssText = 'padding:6px 12px;cursor:pointer;color:#6bc5ff;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.1)';
+    custom.textContent = '+ Custom...';
+    custom.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; openPresetEditor('', -1); };
+    custom.onmouseenter = () => { custom.style.background = 'rgba(255,255,255,0.08)'; };
+    custom.onmouseleave = () => { custom.style.background = 'none'; };
+    presetMenu.appendChild(custom);
+}
+buildPresetMenu();
+
+// Preset editor overlay
+function openPresetEditor(text, editIndex) {
+    const overlay = el('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center';
+    const box = el('div');
+    box.style.cssText = 'background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:16px;width:400px;max-width:90vw';
+    const ta = el('textarea');
+    ta.style.cssText = 'width:100%;height:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;font-size:12px;padding:8px;resize:vertical;font-family:system-ui';
+    ta.value = text;
+    const btnRow = el('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end';
+    const cancelBtn = el('button', null, { textContent: 'Cancel' });
+    cancelBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.1);color:#ccc;padding:6px 14px;border-radius:6px;cursor:pointer';
+    cancelBtn.onclick = () => overlay.remove();
+    const saveBtn = el('button', null, { textContent: 'Use' });
+    saveBtn.style.cssText = 'border:none;background:#2563eb;color:white;padding:6px 14px;border-radius:6px;cursor:pointer';
+    saveBtn.onclick = () => {
+        promptText = ta.value.trim();
+        if (editIndex >= 0 && editIndex < presets.length) presets[editIndex].text = promptText;
+        overlay.remove();
+        setStatus('📋 Prompt set (' + promptText.length + ' chars)', CLR.info);
+    };
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
+    box.appendChild(ta);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    ta.focus();
+}
+
+let presetMenuOpen = false;
+presetArrow.onclick = (e) => { e.stopPropagation(); presetMenuOpen = !presetMenuOpen; presetMenu.style.display = presetMenuOpen ? 'block' : 'none'; };
+presetBtn.onclick = (e) => { e.stopPropagation(); openPresetEditor(promptText, -1); };
+
+presetWrap.appendChild(presetBtn);
+presetWrap.appendChild(presetArrow);
+presetWrap.appendChild(presetMenu);
+
+// --- Send Mode Dropdown ---
+// DESIGN: Split button — left sends promptText, right arrow opens mode dropdown.
+// Replaces the message type dot. Follows solveit-canvas pattern.
+const sendWrap = el('div', 'v-gear-wrap');
+sendWrap.style.cssText = 'position:relative;display:flex;align-items:center';
+
+const sendBtn = el('button', null, { title: 'Send preset prompt' });
+sendBtn.style.cssText = 'border:none;background:#e74c3c;border-radius:6px 0 0 6px;padding:4px 10px;cursor:pointer;font-size:0.85em;color:white;height:28px;border-right:1px solid rgba(255,255,255,0.2)';
+const updateSendBtn = () => {
+    const m = SEND_MODES.find(s => s.mode === sendMode);
+    sendBtn.textContent = m.icon;
+    sendBtn.style.background = m.color;
 };
+updateSendBtn();
+
+const sendArrow = el('button', null, { textContent: '▾', title: 'Send mode' });
+sendArrow.style.cssText = 'border:none;background:rgba(255,255,255,0.08);border-radius:0 6px 6px 0;padding:4px 6px;cursor:pointer;font-size:0.75em;color:#ccc;height:28px';
+
+const sendMenu = el('div', 'v-dropdown');
+sendMenu.style.cssText += ';bottom:36px;right:0;left:auto;min-width:180px';
+
+SEND_MODES.forEach(m => {
+    const item = el('div', 'v-switch-row');
+    item.style.cssText = 'padding:6px 12px;cursor:pointer;color:#ccc;font-size:0.8em';
+    item.textContent = m.icon + ' ' + m.label;
+    item.onclick = (e) => { e.stopPropagation(); sendMode = m.mode; updateSendBtn(); sendMenu.style.display = 'none'; setStatus(m.label, m.color); log('Send mode:', m.mode); };
+    item.onmouseenter = () => { item.style.background = 'rgba(255,255,255,0.08)'; };
+    item.onmouseleave = () => { item.style.background = 'none'; };
+    sendMenu.appendChild(item);
+});
+
+// DESIGN: Send button sends promptText. Disabled when empty.
+sendBtn.onclick = () => {
+    if (!promptText.trim()) { setStatus('No preset selected', CLR.warn); return; }
+    log('Send preset:', promptText.slice(0, 40), 'mode:', sendMode);
+    V.sendPreset(promptText, sendMode);
+};
+
+let sendMenuOpen = false;
+sendArrow.onclick = (e) => { e.stopPropagation(); sendMenuOpen = !sendMenuOpen; sendMenu.style.display = sendMenuOpen ? 'block' : 'none'; };
+
+sendWrap.appendChild(sendBtn);
+sendWrap.appendChild(sendArrow);
+sendWrap.appendChild(sendMenu);
+
+// --- Close all dropdowns on outside click ---
+document.addEventListener('click', (e) => {
+    if (presetMenuOpen && !presetWrap.contains(e.target)) { presetMenuOpen = false; presetMenu.style.display = 'none'; }
+    if (sendMenuOpen && !sendWrap.contains(e.target)) { sendMenuOpen = false; sendMenu.style.display = 'none'; }
+}, sig);
 
 let ddOpen = false;
 gearBtn.onclick = (e) => { e.stopPropagation(); ddOpen = !ddOpen; dropdown.style.display = ddOpen ? 'block' : 'none'; setGearStyle(ddOpen); };
@@ -227,7 +361,8 @@ gearWrap.appendChild(dropdown);
 div.appendChild(btn);
 div.appendChild(ttsStopBtn);
 div.appendChild(status);
-div.appendChild(msgTypeDot);
+div.appendChild(presetWrap);
+div.appendChild(sendWrap);
 div.appendChild(gearWrap);
 document.body.appendChild(div);
 
@@ -238,6 +373,10 @@ V.getDname = getDname;
 V.resetUI = resetUI;
 V.autoCb = autoCb;
 V.doubleBeep = doubleBeep;
+// DESIGN: sendMode getter — send.js reads this to determine msg_type + run flag
+Object.defineProperty(V, 'msgType', { get() { return sendMode === 'note' ? 'note' : 'prompt'; }, configurable: true });
+Object.defineProperty(V, 'sendMode', { get() { return sendMode; }, set(v) { sendMode = v; } });
+Object.defineProperty(V, 'promptText', { get() { return promptText; }, set(v) { promptText = v; } });
 
 // --- Speech Recognition Setup ---
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -270,8 +409,9 @@ let startTimer = null;
 let userActive = false;
 
 // --- Getters for split-out modules ---
-Object.defineProperty(V, 'msgType',    { get: () => msgType,    configurable: true });
-Object.defineProperty(V, 'anchorId',   { get: () => anchorId,   configurable: true });
+// DESIGN: msgType, sendMode, promptText are defined above (near V exports).
+// anchorId is also defined above as a getter reading the local anchorId variable.
+Object.defineProperty(V, 'anchorId',   { get: () => anchorId, set: (v) => { anchorId = v; }, configurable: true });
 Object.defineProperty(V, 'destroyed',  { get: () => destroyed,  configurable: true });
 Object.defineProperty(V, 'userActive', { get: () => userActive, configurable: true });
 

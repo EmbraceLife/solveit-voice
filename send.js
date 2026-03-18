@@ -15,18 +15,21 @@ if (V._sendCleanup) V._sendCleanup();
 
 const log = V.log;
 
-async function sendTranscript(text) {
+// DESIGN: Core send function used by both voice and preset paths.
+// Reads V.sendMode to determine msg_type and whether to auto-run.
+async function sendTranscript(text, mode) {
+    mode = mode || V.sendMode || 'prompt_run';
     V.setStatus('📤 Sending: ' + text.slice(0, 40) + '...', V.CLR.warn);
     try {
+        const msgType = (mode === 'note') ? 'note' : 'prompt';
         const params = {
             dlg_name: V.getDname(),
-            content: (V.autoCb.checked ? '🎤 Voice [autorun]: ' : '🎤 Voice: ') + text,
-            msg_type: V.msgType,
+            content: text,
+            msg_type: msgType,
             placement: V.anchorId ? 'add_before' : 'at_end',
         };
-        // DESIGN: Only prompts auto-run. Omit run key entirely for code/note
-        // because the server treats any string as truthy.
-        if (V.msgType === 'prompt') params.run = 'true';
+        // DESIGN: Only prompt_run auto-runs. prompt and note don't.
+        if (mode === 'prompt_run') params.run = 'true';
         if (V.anchorId) params.id_ = V.anchorId;
 
         const body = new URLSearchParams(params);
@@ -39,8 +42,17 @@ async function sendTranscript(text) {
     }
 }
 
+// DESIGN: sendPreset is called by the send button for preset prompts.
+// Voice path still uses sendAndRestart() which adds the 🎤 prefix.
+async function sendPreset(text, mode) {
+    log('sendPreset:', text.slice(0, 40), 'mode:', mode);
+    await sendTranscript(text, mode);
+}
+
 async function sendAndRestart(text) {
-    try { await sendTranscript(text); }
+    // DESIGN: Voice path adds 🎤 prefix to distinguish voice from preset prompts
+    const prefixed = (V.autoCb.checked ? '🎤 Voice [autorun]: ' : '🎤 Voice: ') + text;
+    try { await sendTranscript(prefixed, 'prompt_run'); }
     catch(e) { log('Send error:', e); V.setStatus('❌ ' + e.message, V.CLR.err); }
     finally {
         if (V.toggleCb.checked && !V.destroyed) {
@@ -55,6 +67,7 @@ async function sendAndRestart(text) {
 
 V.sendTranscript = sendTranscript;
 V.sendAndRestart = sendAndRestart;
+V.sendPreset = sendPreset;
 
 V._sendCleanup = () => {
     delete V.sendTranscript; delete V.sendAndRestart; delete V._sendCleanup;

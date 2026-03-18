@@ -167,7 +167,7 @@ async function kokoroSpeak(text) {
 }
 
 // --- Toggle in gear dropdown ---
-const dd = document.querySelector('#voice-widget .v-dropdown');
+const dd = document.querySelector('#voice-gear-dropdown');
 if (dd) {
     const row = document.createElement('div'); row.className = 'v-switch-row';
     const txt = document.createElement('span'); txt.textContent = '🎵 Kokoro TTS';
