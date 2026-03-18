@@ -115,34 +115,39 @@ const DEFAULT_PRESETS = [
 let presets = [...DEFAULT_PRESETS];
 let lastSelectedPresetIdx = -1;
 
-// DESIGN: Persist presets via postMessage bridge to content.js.
-// MAIN world scripts can't access chrome.storage.local directly,
-// so we post messages that content.js catches and forwards to storage.
+// DESIGN: Persist presets and anchor via localStorage.
+// localStorage is available in MAIN world — no bridge needed.
+// Follows context_token_counter pattern: key by dialog name.
+const PRESETS_KEY = 'voice_presets';
+const ANCHOR_KEY = 'voice_anchor_' + (location.pathname.split('/').filter(Boolean).slice(0, -1).join('/') || 'default');
+
 function savePresets() {
-    window.postMessage({ type: 'voice-presets-save', presets }, '*');
-    log('Presets save requested:', presets.length);
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); log('Presets saved:', presets.length); }
+    catch(e) { log('Save presets error:', e); }
 }
 function loadPresets() {
-    window.postMessage({ type: 'voice-presets-load' }, '*');
-    log('Presets load requested');
+    try {
+        const saved = localStorage.getItem(PRESETS_KEY);
+        if (saved) {
+            presets = JSON.parse(saved);
+            log('Presets loaded from localStorage:', presets.length);
+            buildPresetMenu();
+        }
+    } catch(e) { log('Load presets error:', e); }
 }
-// DESIGN: content.js responds with voice-presets-loaded message
-// containing the saved presets array from chrome.storage.local.
-window.addEventListener('message', (e) => {
-    if (e.source !== window) return;
-    if (e.data?.type === 'voice-presets-loaded' && e.data.presets && e.data.presets.length) {
-        presets = e.data.presets;
-        log('Presets loaded from storage:', presets.length);
-        buildPresetMenu();
-    }
-    if (e.data?.type === 'voice-anchor-loaded' && e.data.anchorId) {
-        anchorId = e.data.anchorId;
-        anchorLabel.textContent = '📌 ' + anchorId;
-        log('Anchor loaded from storage:', anchorId);
-    }
-});
+function saveAnchor() {
+    try { localStorage.setItem(ANCHOR_KEY, anchorId || ''); log('Anchor saved:', anchorId); }
+    catch(e) { log('Save anchor error:', e); }
+}
 function loadAnchor() {
-    window.postMessage({ type: 'voice-anchor-load' }, '*');
+    try {
+        const saved = localStorage.getItem(ANCHOR_KEY);
+        if (saved) {
+            anchorId = saved;
+            anchorLabel.textContent = '📌 ' + anchorId;
+            log('Anchor loaded from localStorage:', anchorId);
+        }
+    } catch(e) { log('Load anchor error:', e); }
 }
 
 // --- Expose shared state under single namespace ---
@@ -463,8 +468,8 @@ document.addEventListener('click', (e) => {
     anchorSwitch.render();
     setStatus('📌 Anchor set: ' + anchorId, CLR.ok);
     log('Anchor set:', anchorId);
-    // DESIGN: Persist anchor to storage so it survives refresh
-    window.postMessage({ type: 'voice-anchor-save', anchorId }, '*');
+    // DESIGN: Persist anchor to localStorage so it survives refresh/reload
+    saveAnchor();
 }, sig);
 
 const gearWrap = el('div', 'v-gear-wrap');

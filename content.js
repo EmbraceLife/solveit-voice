@@ -101,33 +101,6 @@
     }
   });
 
-  // --- Bridge: MAIN world preset storage ---
-  // DESIGN: widget.js (MAIN world) can't access chrome.storage.local,
-  // so it posts messages here. We save/load and post results back.
-  window.addEventListener('message', (e) => {
-    if (e.source !== window) return;
-    if (e.data?.type === 'voice-presets-save' && e.data.presets) {
-      chrome.storage.local.set({ voicePresets: e.data.presets });
-      log('Presets saved to storage:', e.data.presets.length);
-    }
-    if (e.data?.type === 'voice-presets-load') {
-      chrome.storage.local.get('voicePresets', (result) => {
-        window.postMessage({ type: 'voice-presets-loaded', presets: result.voicePresets || [] }, '*');
-        log('Presets loaded from storage:', (result.voicePresets || []).length);
-      });
-    }
-    if (e.data?.type === 'voice-anchor-save' && e.data.anchorId) {
-      chrome.storage.local.set({ voiceAnchorId: e.data.anchorId });
-      log('Anchor saved to storage:', e.data.anchorId);
-    }
-    if (e.data?.type === 'voice-anchor-load') {
-      chrome.storage.local.get('voiceAnchorId', (result) => {
-        window.postMessage({ type: 'voice-anchor-loaded', anchorId: result.voiceAnchorId || null }, '*');
-        log('Anchor loaded from storage:', result.voiceAnchorId || '(none)');
-      });
-    }
-  });
-
   // Guard: don't double-inject if scripts already loaded
   if (document.querySelector('script[data-solveit-voice]')) {
     log('scripts already loaded, skipping');
