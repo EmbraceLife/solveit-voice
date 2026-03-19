@@ -144,7 +144,7 @@
 #kokoro-audio-container {
   display: none;
   position: absolute;
-  bottom: -70px;
+  bottom: -90px;
   left: 0;
   z-index: 9998;
   background: rgba(15, 15, 25, 0.85);

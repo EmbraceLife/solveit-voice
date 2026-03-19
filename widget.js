@@ -121,9 +121,28 @@ let lastSelectedPresetIdx = -1;
 const PRESETS_KEY = 'voice_presets';
 const ANCHOR_KEY = 'voice_anchor_' + _edVar('dlg_name');
 
+// DESIGN: savePresets writes to BOTH localStorage AND presets.json via solveit kernel.
+// Auto-save on every change — no manual button needed (manual still available as backup).
 function savePresets() {
-    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); log('Presets saved:', presets.length); }
-    catch(e) { log('Save presets error:', e); }
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); log('Presets saved to localStorage:', presets.length); }
+    catch(e) { log('Save presets localStorage error:', e); }
+    // DESIGN: Also persist to JSON file via solveit kernel code cell.
+    // Sends a code message that writes presets.json — permanent backup survives browser data clear.
+    savePresetsToFile();
+}
+function savePresetsToFile() {
+    const json = JSON.stringify(presets, null, 2);
+    const code = `from pathlib import Path\nPath('./solveit-voice/presets.json').write_text('''${json.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'")}''')\nprint('💾 Presets saved to presets.json:', ${presets.length}, 'presets')`;
+    const body = new URLSearchParams({
+        dlg_name: V.getDname(),
+        content: code,
+        msg_type: 'code',
+        run: 'true',
+        placement: 'at_end'
+    });
+    fetch('/add_relative_', { method: 'POST', body })
+        .then(r => { if (r.ok) { setStatus('💾 Saved to file + localStorage', CLR.ok); log('Presets saved to file:', presets.length); } else { setStatus('⚠️ File save failed: ' + r.status, CLR.warn); } })
+        .catch(e => { log('Save to file error:', e); setStatus('⚠️ File save failed', CLR.warn); });
 }
 function loadPresets() {
     try {
@@ -134,6 +153,55 @@ function loadPresets() {
             buildPresetMenu();
         }
     } catch(e) { log('Load presets error:', e); }
+}
+// DESIGN: Load presets from JSON file via solveit kernel.
+// Sends a code cell that reads presets.json and injects data via add_scr (not add_html).
+// LESSON: add_html with <script> tags doesn't execute — browsers block innerHTML scripts.
+// add_scr properly creates and executes a <script> element.
+// Widget polls for window._voiceLoadedPresets, grabs data, updates presets, cleans up.
+function loadPresetsFromFile() {
+    setStatus('📂 Loading from file...', CLR.warn);
+    log('loadPresetsFromFile: starting...');
+    const code = `from pathlib import Path\np = Path('./solveit-voice/presets.json')\nif p.exists():\n    add_scr('window._voiceLoadedPresets = ' + p.read_text())\n    print('📂 Presets file read:', len(__import__('json').loads(p.read_text())), 'presets')\nelse:\n    add_scr('window._voiceLoadedPresets = "NOT_FOUND"')\n    print('⚠️ presets.json not found')`;
+    const body = new URLSearchParams({
+        dlg_name: V.getDname(),
+        content: code,
+        msg_type: 'code',
+        run: 'true',
+        placement: 'at_end'
+    });
+    fetch('/add_relative_', { method: 'POST', body })
+        .then(r => {
+            log('loadPresetsFromFile: fetch response status:', r.status);
+            if (!r.ok) { setStatus('⚠️ Load failed: ' + r.status, CLR.warn); return; }
+            // DESIGN: Poll for injected data — kernel runs code, add_scr executes JS.
+            // Polls every 500ms for up to 15s, then gives up.
+            let attempts = 0;
+            const poll = setInterval(() => {
+                attempts++;
+                log('loadPresetsFromFile: poll attempt', attempts, 'window._voiceLoadedPresets:', typeof window._voiceLoadedPresets);
+                if (window._voiceLoadedPresets !== undefined) {
+                    clearInterval(poll);
+                    if (window._voiceLoadedPresets === 'NOT_FOUND') {
+                        setStatus('⚠️ presets.json not found — save first', CLR.warn);
+                    } else {
+                        try {
+                            const loaded = window._voiceLoadedPresets;
+                            log('loadPresetsFromFile: got data, type:', typeof loaded, 'isArray:', Array.isArray(loaded));
+                            if (!Array.isArray(loaded)) { setStatus('⚠️ Invalid presets data', CLR.warn); return; }
+                            presets = loaded;
+                            localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+                            buildPresetMenu();
+                            setStatus('📂 Loaded ' + presets.length + ' presets from file', CLR.ok);
+                            log('Presets loaded from file:', presets.length);
+                        } catch(err) { setStatus('⚠️ Parse error: ' + err.message, CLR.warn); log('Load parse error:', err); }
+                    }
+                    delete window._voiceLoadedPresets;
+                }
+                if (attempts > 30) { clearInterval(poll); setStatus('⚠️ Load timed out', CLR.warn); log('loadPresetsFromFile: timed out after 30 polls'); }
+            }, 500);
+        })
+        .catch(e => { log('Load from file error:', e); setStatus('⚠️ Load failed', CLR.warn); });
 }
 function saveAnchor() {
     try { localStorage.setItem(ANCHOR_KEY, anchorId || ''); log('Anchor saved:', anchorId); }
@@ -265,6 +333,26 @@ function buildPresetMenu() {
     custom.onmouseenter = () => { custom.style.background = 'rgba(255,255,255,0.08)'; };
     custom.onmouseleave = () => { custom.style.background = 'none'; };
     presetMenu.appendChild(custom);
+
+    // DESIGN: File operations — save/load presets to/from JSON file.
+    // Save is manual backup (auto-save already happens on every change).
+    // Load uses browser file picker — user picks presets.json from extension folder.
+    const menuItemStyle = 'padding:6px 12px;cursor:pointer;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.1)';
+    const hoverOn = (el) => { el.onmouseenter = () => { el.style.background = 'rgba(255,255,255,0.08)'; }; el.onmouseleave = () => { el.style.background = 'none'; }; };
+
+    const saveItem = el('div', 'v-switch-row');
+    saveItem.style.cssText = menuItemStyle + ';color:#6bff6b';
+    saveItem.textContent = '💾 Save to file';
+    saveItem.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; savePresetsToFile(); };
+    hoverOn(saveItem);
+    presetMenu.appendChild(saveItem);
+
+    const loadItem = el('div', 'v-switch-row');
+    loadItem.style.cssText = menuItemStyle + ';color:#ffb86b';
+    loadItem.textContent = '📂 Load from file';
+    loadItem.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; loadPresetsFromFile(); };
+    hoverOn(loadItem);
+    presetMenu.appendChild(loadItem);
 }
 buildPresetMenu();
 loadPresets();
