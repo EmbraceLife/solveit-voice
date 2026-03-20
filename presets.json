@@ -1,46 +1,52 @@
-[
-  {
-    "name": "Build Section TOC",
-    "text": "First, use function calls to figure out the current H1 section heading note message, \nThen, Build a ## 📑 Section TOC note for the current H1 section. Use your memory — do NOT use tool calls to read messages. For each prompt, summarize the core idea from its OUTPUT (the output is what matters most) and use that as the link description. Format as numbered list: 1. <a href=\"#_id\">summary of prompt output essential idea</a>. Each item links to one prompt. Place the TOC note right after the H1 heading."
-  },
-  {
-    "name": "Update Section TOC",
-    "text": "First, use function calls to figure out the current H1 section heading note message, \nThen, Update the existing ## 📑 Section TOC for this section. Use your memory — no tool calls to read messages. Only add entries for new important prompts whose outputs have substantial content. Summarize the core idea from each output as the link description. Keep existing entries intact."
-  },
-  {
-    "name": "Download Extension",
-    "text": "Run download_folder for the Chrome extension folder in the current directory so I can test it locally."
-  },
-  {
-    "name": "Push Repo to GitHub",
-    "text": "First, find the cloned repo path in current directory and its proper repo name on github, Then push the cloned repo using push_repo_to_github()"
-  },
-  {
-    "name": "Backup to GitHub",
-    "text": "First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path."
-  },
-  {
-    "name": "sketch concepts",
-    "text": "please apply \"sketch this concept\" on issues, bugs and their related solutions and learning points in this section"
-  },
-  {
-    "name": "walk me through",
-    "text": "use function call to figure out where is the current section, and then apply \"walk me through this\" trigger to explain the issues, bugs and related learning points and solutions in this current section"
-  },
-  {
-    "name": "test this step",
-    "text": "So, have we finished this step? if so,  How should I test the modifications or the step completed to make sure everything work as expected"
-  },
-  {
-    "name": "add section toc summary",
-    "text": "First, use function call to find the current H1 heading section;\nSecond, use your memory not use function calls to read every message, to create a summary for this section and put it inside section toc"
-  },
-  {
-    "name": "plan this feature",
-    "text": "apply \"plan this feature\" the first trigger, help me understand the design comprehensively"
-  },
-  {
-    "name": "explain the issue & fix",
-    "text": "explain the issue/bug comprehensively using rewrite4kid style without losing any details and then explain how the fix solve the problem accordingly"
-  }
-]
+{
+  "organize": [
+    {
+      "name": "Build Section TOC",
+      "text": "First, use function calls to figure out the current H1 section heading note message, \nThen, Build a ## 📑 Section TOC note for the current H1 section. Use your memory — do NOT use tool calls to read messages. For each prompt, summarize the core idea from its OUTPUT (the output is what matters most) and use that as the link description. Format as numbered list: 1. <a href=\"#_id\">summary of prompt output essential idea</a>. Each item links to one prompt. Place the TOC note right after the H1 heading."
+    },
+    {
+      "name": "Update Section TOC",
+      "text": "First, use function calls to figure out the current H1 section heading note message, \nThen, Update the existing ## 📑 Section TOC for this section. Use your memory — no tool calls to read messages. Only add entries for new important prompts whose outputs have substantial content. Summarize the core idea from each output as the link description. Keep existing entries intact."
+    },
+    {
+      "name": "add section toc summary",
+      "text": "First, use function call to find the current H1 heading section;\nSecond, use your memory not use function calls to read every message, to create a summary for this section and put it inside section toc"
+    },
+    {
+      "name": "Download Extension",
+      "text": "Run download_folder for the Chrome extension folder in the current directory so I can test it locally."
+    },
+    {
+      "name": "Push Repo to GitHub",
+      "text": "First, find the cloned repo path in current directory and its proper repo name on github, Then push the cloned repo using push_repo_to_github()"
+    },
+    {
+      "name": "Backup to GitHub",
+      "text": "First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path."
+    }
+  ],
+  "build": [
+    {
+      "name": "plan this feature",
+      "text": "apply \"plan this feature\" the first trigger, help me understand the design comprehensively"
+    },
+    {
+      "name": "test this step",
+      "text": "So, have we finished this step? if so,  How should I test the modifications or the step completed to make sure everything work as expected"
+    },
+    {
+      "name": "explain the issue & fix",
+      "text": "explain the issue/bug comprehensively using rewrite4kid style without losing any details and then explain how the fix solve the problem accordingly"
+    }
+  ],
+  "read": [
+    {
+      "name": "walk me through",
+      "text": "use function call to figure out where is the current section, and then apply \"walk me through this\" trigger to explain the issues, bugs and related learning points and solutions in this current section"
+    },
+    {
+      "name": "sketch concepts",
+      "text": "please apply \"sketch this concept\" on issues, bugs and their related solutions and learning points in this section"
+    }
+  ]
+}

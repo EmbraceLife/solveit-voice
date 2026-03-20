@@ -105,26 +105,52 @@ let promptText = '';
 // --- Preset Prompts ---
 // DESIGN: Quick-access prompts for common actions. User can select
 // a preset, then click send — two clicks for repetitive tasks.
-const DEFAULT_PRESETS = [
-    { name: 'Build Section TOC', text: 'Build a ## 📑 Section TOC note for the current H1 section. Use your memory — do NOT use tool calls to read messages. For each prompt, summarize the core idea from its OUTPUT (the output is what matters most) and use that as the link description. Format as numbered list: 1. <a href=\"#_id\">summary of prompt output essential idea</a>. Each item links to one prompt. Place the TOC note right after the H1 heading.' },
-    { name: 'Update Section TOC', text: 'Update the existing ## 📑 Section TOC for this section. Use your memory — no tool calls to read messages. Only add entries for new important prompts whose outputs have substantial content. Summarize the core idea from each output as the link description. Keep existing entries intact.' },
-    { name: 'Download Extension', text: 'Run download_folder for the Chrome extension folder in the current directory so I can test it locally.' },
-    { name: 'Push Repo to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then push the cloned repo using push_repo_to_github(), and backup the instance with backup_to_github() using the correct dialog path in the commit message.' },
-    { name: 'Backup to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path.' }
-];
-let presets = [...DEFAULT_PRESETS];
-let lastSelectedPresetIdx = -1;
+// DESIGN: Categorized presets — object with category keys, each holding an array of {name, text}.
+// Two-level menu: category buttons on right, preset items expand left.
+// Migration: if localStorage has old flat array, auto-wrap in {"uncategorized": [...]}.
+const DEFAULT_PRESETS = {
+    organize: [
+        { name: 'Build Section TOC', text: 'Build a ## 📑 Section TOC note for the current H1 section. Use your memory — do NOT use tool calls to read messages. For each prompt, summarize the core idea from its OUTPUT (the output is what matters most) and use that as the link description. Format as numbered list: 1. <a href=\"#_id\">summary of prompt output essential idea</a>. Each item links to one prompt. Place the TOC note right after the H1 heading.' },
+        { name: 'Update Section TOC', text: 'Update the existing ## 📑 Section TOC for this section. Use your memory — no tool calls to read messages. Only add entries for new important prompts whose outputs have substantial content. Summarize the core idea from each output as the link description. Keep existing entries intact.' },
+        { name: 'Download Extension', text: 'Run download_folder for the Chrome extension folder in the current directory so I can test it locally.' },
+        { name: 'Push Repo to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then push the cloned repo using push_repo_to_github(), and backup the instance with backup_to_github() using the correct dialog path in the commit message.' },
+        { name: 'Backup to GitHub', text: 'First call curr_dialog() to get the exact dialog path. Then run backup_to_github() with a descriptive commit message that includes the correct dialog path.' }
+    ],
+    build: [
+        { name: 'plan this feature', text: 'apply "plan this feature" the first trigger, help me understand the design comprehensively' },
+        { name: 'test this step', text: 'So, have we finished this step? if so, How should I test the modifications or the step completed to make sure everything work as expected' },
+        { name: 'explain the issue & fix', text: 'explain the issue/bug comprehensively using rewrite4kid style without losing any details and then explain how the fix solve the problem accordingly' }
+    ],
+    read: [
+        { name: 'walk me through', text: 'use function call to figure out where is the current section, and then apply "walk me through this" trigger to explain the issues, bugs and related learning points and solutions in this current section' },
+        { name: 'sketch concepts', text: 'please apply "sketch this concept" on issues, bugs and their related solutions and learning points in this section' }
+    ],
+    watch: []
+};
+// DESIGN: presets is the live categorized object. activeCategory tracks which tab is selected.
+// lastSelectedPreset stores {cat, idx} so preset editor knows which preset to update.
+let presets = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+let activeCategory = Object.keys(DEFAULT_PRESETS)[0];
+let lastSelectedPreset = { cat: null, idx: -1 };
 
 // DESIGN: Persist presets and anchor via localStorage.
 // localStorage is available in MAIN world — no bridge needed.
 // Follows context_token_counter pattern: key by dialog name.
 const PRESETS_KEY = 'voice_presets';
 const ANCHOR_KEY = 'voice_anchor_' + _edVar('dlg_name');
+const GIST_TOKEN_KEY = 'voice_gist_token';
+const GIST_ID_KEY = 'voice_gist_id';
 
 // DESIGN: savePresets writes to BOTH localStorage AND presets.json via solveit kernel.
 // Auto-save on every change — no manual button needed (manual still available as backup).
+// DESIGN: savePresets writes categorized object to localStorage.
+// Log total preset count across all categories for quick verification.
 function savePresets() {
-    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); log('Presets saved to localStorage:', presets.length); }
+    try {
+        localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+        const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+        log('Presets saved to localStorage:', total, 'across', Object.keys(presets).length, 'categories');
+    }
     catch(e) { log('Save presets localStorage error:', e); }
     // DESIGN: Also persist to JSON file via solveit kernel code cell.
     // Sends a code message that writes presets.json — permanent backup survives browser data clear.
@@ -132,7 +158,8 @@ function savePresets() {
 }
 function savePresetsToFile() {
     const json = JSON.stringify(presets, null, 2);
-    const code = `from pathlib import Path\nPath('./solveit-voice/presets.json').write_text('''${json.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'")}''')\nprint('💾 Presets saved to presets.json:', ${presets.length}, 'presets')`;
+    const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+    const code = `from pathlib import Path\nPath('./solveit-voice/presets.json').write_text('''${json.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'")}''')\nprint('💾 Presets saved to presets.json:', ${total}, 'presets across', ${Object.keys(presets).length}, 'categories')`;
     const body = new URLSearchParams({
         dlg_name: V.getDname(),
         content: code,
@@ -141,15 +168,28 @@ function savePresetsToFile() {
         placement: 'at_end'
     });
     fetch('/add_relative_', { method: 'POST', body })
-        .then(r => { if (r.ok) { setStatus('💾 Saved to file + localStorage', CLR.ok); log('Presets saved to file:', presets.length); } else { setStatus('⚠️ File save failed: ' + r.status, CLR.warn); } })
+        .then(r => { if (r.ok) { setStatus('💾 Saved to file + localStorage', CLR.ok); log('Presets saved to file:', total, 'presets'); } else { setStatus('⚠️ File save failed: ' + r.status, CLR.warn); } })
         .catch(e => { log('Save to file error:', e); setStatus('⚠️ File save failed', CLR.warn); });
 }
+// DESIGN: Load presets from localStorage with migration.
+// Old format was flat array [{name,text},...] — auto-wrap in {uncategorized: [...]}.
+// New format is categorized object {category: [{name,text},...], ...}.
 function loadPresets() {
     try {
         const saved = localStorage.getItem(PRESETS_KEY);
         if (saved) {
-            presets = JSON.parse(saved);
-            log('Presets loaded from localStorage:', presets.length);
+            const parsed = JSON.parse(saved);
+            // MIGRATION: detect old flat array format → wrap in uncategorized
+            if (Array.isArray(parsed)) {
+                log('Migration: converting flat array to categorized object,', parsed.length, 'presets → uncategorized');
+                presets = { uncategorized: parsed };
+                savePresets(); // persist migrated format immediately
+            } else {
+                presets = parsed;
+            }
+            const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+            log('Presets loaded from localStorage:', total, 'across', Object.keys(presets).length, 'categories');
+            activeCategory = Object.keys(presets)[0] || 'organize';
             buildPresetMenu();
         }
     } catch(e) { log('Load presets error:', e); }
@@ -188,12 +228,19 @@ function loadPresetsFromFile() {
                         try {
                             const loaded = window._voiceLoadedPresets;
                             log('loadPresetsFromFile: got data, type:', typeof loaded, 'isArray:', Array.isArray(loaded));
-                            if (!Array.isArray(loaded)) { setStatus('⚠️ Invalid presets data', CLR.warn); return; }
-                            presets = loaded;
+                            // MIGRATION: accept both old flat array and new categorized object
+                            if (Array.isArray(loaded)) {
+                                log('loadPresetsFromFile: migrating flat array →', loaded.length, 'presets → uncategorized');
+                                presets = { uncategorized: loaded };
+                            } else if (loaded && typeof loaded === 'object') {
+                                presets = loaded;
+                            } else { setStatus('⚠️ Invalid presets data', CLR.warn); return; }
                             localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+                            activeCategory = Object.keys(presets)[0] || 'organize';
                             buildPresetMenu();
-                            setStatus('📂 Loaded ' + presets.length + ' presets from file', CLR.ok);
-                            log('Presets loaded from file:', presets.length);
+                            const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+                            setStatus('📂 Loaded ' + total + ' presets from file', CLR.ok);
+                            log('Presets loaded from file:', total, 'across', Object.keys(presets).length, 'categories');
                         } catch(err) { setStatus('⚠️ Parse error: ' + err.message, CLR.warn); log('Load parse error:', err); }
                     }
                     delete window._voiceLoadedPresets;
@@ -203,6 +250,89 @@ function loadPresetsFromFile() {
         })
         .catch(e => { log('Load from file error:', e); setStatus('⚠️ Load failed', CLR.warn); });
 }
+// --- Gist sync ---
+// DESIGN: Presets sync to a GitHub Gist for cross-machine persistence.
+// Token stored in localStorage (user enters once). Gist ID stored after first create.
+// Routes through background.js to avoid CORS.
+// DESIGN: MAIN world can't call chrome.runtime.sendMessage() directly.
+// Same postMessage bridge as kokoro.js uses for Replicate API.
+// Flow: widget.js → postMessage → content.js → chrome.runtime.sendMessage → background.js
+let _gistReqCounter = 0;
+function gistFetch(url, method, token, body) {
+    return new Promise((resolve, reject) => {
+        const requestId = 'gf-' + (++_gistReqCounter) + '-' + Date.now();
+        function handler(e) {
+            if (e.source !== window || e.data?.type !== 'gist-fetch-response') return;
+            if (e.data.requestId !== requestId) return;
+            window.removeEventListener('message', handler);
+            resolve({ ok: e.data.ok, status: e.data.status, data: e.data.data });
+        }
+        window.addEventListener('message', handler);
+        window.postMessage({
+            type: 'gist-fetch', requestId, url, method,
+            headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github+json' },
+            body: body ? JSON.stringify(body) : undefined
+        }, '*');
+        setTimeout(() => { window.removeEventListener('message', handler); reject(new Error('Gist fetch timeout')); }, 30000);
+    });
+}
+
+async function savePresetsToGist() {
+    const token = localStorage.getItem(GIST_TOKEN_KEY);
+    if (!token) { setStatus('⚠️ Set GitHub token first (gear menu)', CLR.warn); return; }
+    setStatus('☁️ Saving to Gist...', CLR.info);
+    log('savePresetsToGist: starting...');
+    const files = { 'solveit-voice-presets.json': { content: JSON.stringify(presets, null, 2) } };
+    try {
+        let gistId = localStorage.getItem(GIST_ID_KEY);
+        let resp;
+        if (gistId) {
+            resp = await gistFetch('https://api.github.com/gists/' + gistId, 'PATCH', token, { files });
+        } else {
+            resp = await gistFetch('https://api.github.com/gists', 'POST', token, { description: 'SolveIt Voice presets', public: false, files });
+        }
+        if (resp.ok) {
+            if (!gistId && resp.data?.id) { localStorage.setItem(GIST_ID_KEY, resp.data.id); log('Gist created:', resp.data.id); }
+            const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+            setStatus('☁️ Saved to Gist (' + total + ' presets)', CLR.ok);
+            log('Presets saved to gist:', total, 'across', Object.keys(presets).length, 'categories');
+        } else {
+            setStatus('⚠️ Gist save failed: ' + (resp.data?.message || resp.status), CLR.warn);
+            log('Gist save error:', resp);
+        }
+    } catch (e) { setStatus('⚠️ Gist save failed', CLR.warn); log('Gist save error:', e); }
+}
+
+async function loadPresetsFromGist() {
+    const token = localStorage.getItem(GIST_TOKEN_KEY);
+    if (!token) { setStatus('⚠️ Set GitHub token first (gear menu)', CLR.warn); return; }
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (!gistId) { setStatus('⚠️ No Gist ID — save to Gist first', CLR.warn); return; }
+    setStatus('☁️ Loading from Gist...', CLR.info);
+    log('loadPresetsFromGist: starting...');
+    try {
+        const resp = await gistFetch('https://api.github.com/gists/' + gistId, 'GET', token);
+        if (resp.ok) {
+            const content = resp.data?.files?.['solveit-voice-presets.json']?.content;
+            if (!content) { setStatus('⚠️ Gist file not found', CLR.warn); return; }
+            const loaded = JSON.parse(content);
+            // MIGRATION: accept both old flat array and new categorized object from Gist
+            if (Array.isArray(loaded)) { presets = { uncategorized: loaded }; }
+            else if (loaded && typeof loaded === 'object') { presets = loaded; }
+            else { setStatus('⚠️ Invalid Gist data', CLR.warn); return; }
+            localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+            activeCategory = Object.keys(presets)[0] || 'organize';
+            buildPresetMenu();
+            const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+            setStatus('☁️ Loaded ' + total + ' presets from Gist', CLR.ok);
+            log('Presets loaded from gist:', total, 'across', Object.keys(presets).length, 'categories');
+        } else {
+            setStatus('⚠️ Gist load failed: ' + (resp.data?.message || resp.status), CLR.warn);
+            log('Gist load error:', resp);
+        }
+    } catch (e) { setStatus('⚠️ Gist load failed', CLR.warn); log('Gist load error:', e); }
+}
+
 function saveAnchor() {
     try { localStorage.setItem(ANCHOR_KEY, anchorId || ''); log('Anchor saved:', anchorId); }
     catch(e) { log('Save anchor error:', e); }
@@ -281,6 +411,65 @@ dropdown.appendChild(anchorSwitch.row);
 dropdown.appendChild(anchorLabel);
 dropdown.appendChild(porcupineSwitch.row);
 
+// --- GitHub token input for Gist sync ---
+// DESIGN: User pastes their GitHub token once. Stored in localStorage.
+// Shown as password field so the token isn't visible on screen.
+const tokenRow = el('div', 'v-switch-row');
+tokenRow.style.cssText = 'padding:4px 12px;display:flex;align-items:center;gap:6px;border-top:1px solid rgba(255,255,255,0.1)';
+const tokenLabel = el('span', null, { textContent: '🔑 Gist token' });
+tokenLabel.style.cssText = 'font-size:0.75em;color:#aaa;white-space:nowrap';
+const tokenInput = el('input');
+tokenInput.type = 'password';
+tokenInput.placeholder = 'ghp_...';
+tokenInput.style.cssText = 'flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 6px;color:#ccc;font-size:0.75em;min-width:0';
+tokenInput.value = localStorage.getItem(GIST_TOKEN_KEY) || '';
+tokenInput.onchange = () => {
+    const v = tokenInput.value.trim();
+    if (v) { localStorage.setItem(GIST_TOKEN_KEY, v); setStatus('🔑 Token saved', CLR.ok); }
+    else { localStorage.removeItem(GIST_TOKEN_KEY); setStatus('🔑 Token cleared', CLR.info); }
+};
+tokenRow.appendChild(tokenLabel);
+tokenRow.appendChild(tokenInput);
+dropdown.appendChild(tokenRow);
+
+// --- Preset file/gist operations in gear menu ---
+// DESIGN: Utility items (save/load file + gist) live in gear, not preset dropdown.
+// Keeps preset menu purely about choosing prompts.
+const utilDivider = el('div');
+utilDivider.style.cssText = 'border-top:1px solid rgba(255,255,255,0.1);margin:6px 0';
+dropdown.appendChild(utilDivider);
+
+const utilStyle = 'padding:6px 12px;cursor:pointer;font-size:0.8em;border-radius:4px;margin:2px 6px';
+const utilHover = (el) => { el.onmouseenter = () => { el.style.background = 'rgba(255,255,255,0.08)'; }; el.onmouseleave = () => { el.style.background = 'none'; }; };
+
+const gearSaveFile = el('div');
+gearSaveFile.style.cssText = utilStyle + ';color:#6bff6b';
+gearSaveFile.textContent = '💾 Save presets to file';
+gearSaveFile.onclick = (e) => { e.stopPropagation(); savePresetsToFile(); };
+utilHover(gearSaveFile);
+dropdown.appendChild(gearSaveFile);
+
+const gearLoadFile = el('div');
+gearLoadFile.style.cssText = utilStyle + ';color:#ffb86b';
+gearLoadFile.textContent = '📂 Load presets from file';
+gearLoadFile.onclick = (e) => { e.stopPropagation(); loadPresetsFromFile(); };
+utilHover(gearLoadFile);
+dropdown.appendChild(gearLoadFile);
+
+const gearSaveGist = el('div');
+gearSaveGist.style.cssText = utilStyle + ';color:#a78bfa';
+gearSaveGist.textContent = '☁️ Save presets to Gist';
+gearSaveGist.onclick = (e) => { e.stopPropagation(); savePresetsToGist(); };
+utilHover(gearSaveGist);
+dropdown.appendChild(gearSaveGist);
+
+const gearLoadGist = el('div');
+gearLoadGist.style.cssText = utilStyle + ';color:#c084fc';
+gearLoadGist.textContent = '☁️ Load presets from Gist';
+gearLoadGist.onclick = (e) => { e.stopPropagation(); loadPresetsFromGist(); };
+utilHover(gearLoadGist);
+dropdown.appendChild(gearLoadGist);
+
 // --- Porcupine toggle handler ---
 // DESIGN: Only subscribe/unsubscribe when continuous mode is ON.
 // Without continuous, there's no Google SpeechRecognition to capture
@@ -308,51 +497,133 @@ presetBtn.style.cssText = 'border:none;background:rgba(255,255,255,0.08);border-
 const presetArrow = el('button', null, { textContent: '▾', title: 'Choose preset' });
 presetArrow.style.cssText = 'border:none;background:rgba(255,255,255,0.08);border-radius:0 6px 6px 0;padding:4px 6px;cursor:pointer;font-size:0.75em;color:#ccc;height:28px';
 
+// DESIGN: Two-panel preset menu — category tabs on RIGHT, preset items on LEFT.
+// presetMenu is the outer container (flex row). Left panel swaps when category clicked.
+// Utility items (save/load/gist) moved to gear menu in Step 3.
 const presetMenu = el('div', 'v-dropdown');
-presetMenu.style.cssText += ';bottom:36px;right:auto;left:0;min-width:220px;max-height:260px;overflow-y:auto';
+// DESIGN: Right-aligned — menu expands leftward from the preset button's right edge.
+presetMenu.style.cssText += ';bottom:36px;right:0;left:auto;display:none;padding:0;overflow:visible';
+
+// DESIGN: Left panel shows presets for active category, scrollable.
+const presetListPanel = el('div');
+presetListPanel.style.cssText = 'min-width:200px;max-height:260px;overflow-y:auto;padding:4px 0';
+
+// DESIGN: Right panel shows category tabs, fixed height, no scroll.
+const categoryPanel = el('div');
+categoryPanel.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:6px;border-left:1px solid rgba(255,255,255,0.1);min-width:80px';
+
+// DESIGN: Assemble two-panel layout — presets left, categories right.
+presetMenu.appendChild(presetListPanel);
+presetMenu.appendChild(categoryPanel);
+
+// DESIGN: Category tab colors — rotate through palette for visual distinction.
+const CAT_COLORS = ['#ff6b6b', '#ffa06b', '#6bc5ff', '#a78bfa', '#6bff6b', '#ffda6b'];
 
 function buildPresetMenu() {
-    presetMenu.innerHTML = '';
-    presets.forEach((p, i) => {
-        const item = el('div', 'v-switch-row');
-        item.style.cssText = 'padding:6px 12px;cursor:pointer;color:#ccc;font-size:0.8em';
-        item.textContent = p.name;
-        // DESIGN: Single click selects preset and closes menu
-        item.onclick = (e) => { e.stopPropagation(); promptText = p.text; lastSelectedPresetIdx = i; presetMenu.style.display = 'none'; setStatus('📋 ' + p.name, CLR.info); log('Preset selected:', p.name, 'idx:', i); };
-        // DESIGN: Double click opens editor with this preset's text
-        item.ondblclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; openPresetEditor(p.text, i); };
-        item.onmouseenter = () => { item.style.background = 'rgba(255,255,255,0.08)'; };
-        item.onmouseleave = () => { item.style.background = 'none'; };
-        presetMenu.appendChild(item);
+    // --- RIGHT PANEL: category tabs ---
+    categoryPanel.innerHTML = '';
+    const cats = Object.keys(presets);
+    cats.forEach((cat, ci) => {
+        const tab = el('div');
+        const isActive = cat === activeCategory;
+        const color = CAT_COLORS[ci % CAT_COLORS.length];
+        // DESIGN: Active tab gets solid background + white text, inactive gets outline style.
+        tab.style.cssText = 'padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.78em;font-weight:600;text-align:center;transition:all 0.15s;'
+            + (isActive
+                ? 'background:' + color + ';color:#1a1a2e;'
+                : 'background:transparent;color:' + color + ';border:1px solid ' + color + ';');
+        tab.textContent = cat;
+        // DESIGN: Click swaps the left panel contents — no close/reopen flicker.
+        tab.onclick = (e) => { e.stopPropagation(); activeCategory = cat; buildPresetMenu(); log('Category switched:', cat); };
+        // DESIGN: Double-click renames category — prompt for new name, move all presets.
+        tab.ondblclick = (e) => {
+            e.stopPropagation();
+            const newName = prompt('Rename category "' + cat + '" to:', cat);
+            if (!newName || newName === cat || newName.trim() === '') return;
+            const trimmed = newName.trim().toLowerCase();
+            if (presets[trimmed]) { setStatus('⚠️ Category "' + trimmed + '" already exists', CLR.warn); return; }
+            // DESIGN: Create new key with old presets, delete old key, preserve order.
+            const newPresets = {};
+            Object.keys(presets).forEach(k => { newPresets[k === cat ? trimmed : k] = presets[k]; });
+            presets = newPresets;
+            if (activeCategory === cat) activeCategory = trimmed;
+            savePresets(); buildPresetMenu();
+            setStatus('✏️ Renamed: ' + cat + ' → ' + trimmed, CLR.ok);
+            log('Category renamed:', cat, '→', trimmed);
+        };
+        // DESIGN: Right-click deletes category — confirm, move presets to first remaining.
+        tab.oncontextmenu = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (cats.length <= 1) { setStatus('⚠️ Cannot delete last category', CLR.warn); return; }
+            const count = (presets[cat] || []).length;
+            const msg = count > 0
+                ? 'Delete "' + cat + '"? Its ' + count + ' preset(s) will move to the first remaining category.'
+                : 'Delete empty category "' + cat + '"?';
+            if (!confirm(msg)) return;
+            // DESIGN: Move presets to first remaining category before deleting.
+            const remaining = cats.filter(c => c !== cat);
+            if (count > 0) { presets[remaining[0]] = (presets[remaining[0]] || []).concat(presets[cat]); }
+            delete presets[cat];
+            if (activeCategory === cat) activeCategory = remaining[0];
+            savePresets(); buildPresetMenu();
+            setStatus('🗑️ Deleted: ' + cat + (count > 0 ? ' (' + count + ' moved to ' + remaining[0] + ')' : ''), CLR.ok);
+            log('Category deleted:', cat, count > 0 ? '→ moved ' + count + ' to ' + remaining[0] : '(empty)');
+        };
+        tab.onmouseenter = () => { if (cat !== activeCategory) tab.style.background = 'rgba(255,255,255,0.08)'; };
+        tab.onmouseleave = () => { if (cat !== activeCategory) tab.style.background = 'transparent'; };
+        categoryPanel.appendChild(tab);
     });
-    // "Custom..." option at bottom
-    const custom = el('div', 'v-switch-row');
+
+    // DESIGN: "+ Category" button at bottom of category panel — prompts for name, creates empty.
+    const addCatBtn = el('div');
+    addCatBtn.style.cssText = 'padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.75em;text-align:center;color:#6bc5ff;border:1px dashed rgba(107,197,255,0.4);margin-top:2px';
+    addCatBtn.textContent = '+ Category';
+    addCatBtn.onclick = (e) => {
+        e.stopPropagation();
+        const name = prompt('New category name:');
+        if (!name || name.trim() === '') return;
+        const trimmed = name.trim().toLowerCase();
+        if (presets[trimmed]) { setStatus('⚠️ Category "' + trimmed + '" already exists', CLR.warn); return; }
+        presets[trimmed] = [];
+        activeCategory = trimmed;
+        savePresets(); buildPresetMenu();
+        setStatus('✅ Category added: ' + trimmed, CLR.ok);
+        log('Category added:', trimmed);
+    };
+    addCatBtn.onmouseenter = () => { addCatBtn.style.background = 'rgba(255,255,255,0.08)'; };
+    addCatBtn.onmouseleave = () => { addCatBtn.style.background = 'none'; };
+    categoryPanel.appendChild(addCatBtn);
+
+    // --- LEFT PANEL: preset items for active category ---
+    presetListPanel.innerHTML = '';
+    const catItems = presets[activeCategory] || [];
+    if (catItems.length === 0) {
+        const empty = el('div');
+        empty.style.cssText = 'padding:12px;color:#666;font-size:0.8em;font-style:italic;text-align:center';
+        empty.textContent = '(empty)';
+        presetListPanel.appendChild(empty);
+    } else {
+        catItems.forEach((p, i) => {
+            const item = el('div');
+            item.style.cssText = 'padding:6px 12px;cursor:pointer;color:#ccc;font-size:0.8em';
+            item.textContent = p.name;
+            // DESIGN: Single click selects preset and closes entire menu.
+            item.onclick = (e) => { e.stopPropagation(); promptText = p.text; lastSelectedPreset = { cat: activeCategory, idx: i }; presetMenu.style.display = 'none'; presetMenuOpen = false; setStatus('📋 ' + p.name + ' [' + activeCategory + ']', CLR.info); log('Preset selected:', p.name, 'cat:', activeCategory, 'idx:', i); };
+            // DESIGN: Double click opens editor for this preset.
+            item.ondblclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; openPresetEditor(p.text, i, activeCategory); };
+            item.onmouseenter = () => { item.style.background = 'rgba(255,255,255,0.08)'; };
+            item.onmouseleave = () => { item.style.background = 'none'; };
+            presetListPanel.appendChild(item);
+        });
+    }
+    // DESIGN: "+ Custom..." always at bottom of left panel — creates new preset in active category.
+    const custom = el('div');
     custom.style.cssText = 'padding:6px 12px;cursor:pointer;color:#6bc5ff;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.1)';
     custom.textContent = '+ Custom...';
-    custom.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; openPresetEditor('', -1); };
+    custom.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; openPresetEditor('', -1, activeCategory); };
     custom.onmouseenter = () => { custom.style.background = 'rgba(255,255,255,0.08)'; };
     custom.onmouseleave = () => { custom.style.background = 'none'; };
-    presetMenu.appendChild(custom);
-
-    // DESIGN: File operations — save/load presets to/from JSON file.
-    // Save is manual backup (auto-save already happens on every change).
-    // Load uses browser file picker — user picks presets.json from extension folder.
-    const menuItemStyle = 'padding:6px 12px;cursor:pointer;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.1)';
-    const hoverOn = (el) => { el.onmouseenter = () => { el.style.background = 'rgba(255,255,255,0.08)'; }; el.onmouseleave = () => { el.style.background = 'none'; }; };
-
-    const saveItem = el('div', 'v-switch-row');
-    saveItem.style.cssText = menuItemStyle + ';color:#6bff6b';
-    saveItem.textContent = '💾 Save to file';
-    saveItem.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; savePresetsToFile(); };
-    hoverOn(saveItem);
-    presetMenu.appendChild(saveItem);
-
-    const loadItem = el('div', 'v-switch-row');
-    loadItem.style.cssText = menuItemStyle + ';color:#ffb86b';
-    loadItem.textContent = '📂 Load from file';
-    loadItem.onclick = (e) => { e.stopPropagation(); presetMenu.style.display = 'none'; presetMenuOpen = false; loadPresetsFromFile(); };
-    hoverOn(loadItem);
-    presetMenu.appendChild(loadItem);
+    presetListPanel.appendChild(custom);
 }
 buildPresetMenu();
 loadPresets();
@@ -362,7 +633,10 @@ loadAnchor();
 // DESIGN: Three buttons — Cancel (discard), Use (temporary), Save (persistent).
 // For existing presets, Save overwrites the text in storage.
 // For new/custom presets, Save prompts for a title then adds to the list.
-function openPresetEditor(text, editIndex) {
+// DESIGN: editCat tracks which category this preset belongs to.
+// For new presets (editIndex=-1), editCat defaults to activeCategory.
+function openPresetEditor(text, editIndex, editCat) {
+    editCat = editCat || activeCategory;
     const overlay = el('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center';
     const box = el('div');
@@ -394,14 +668,15 @@ function openPresetEditor(text, editIndex) {
         const newText = ta.value.trim();
         if (!newText) { setStatus('Cannot save empty preset', CLR.warn); return; }
 
-        if (editIndex >= 0 && editIndex < presets.length) {
+        const catArr = presets[editCat] || [];
+        if (editIndex >= 0 && editIndex < catArr.length) {
             // DESIGN: Existing preset — open title prompt with current name pre-filled
             overlay.remove();
-            openTitlePrompt(newText, presets[editIndex].name, editIndex);
+            openTitlePrompt(newText, presets[editCat][editIndex].name, editIndex, editCat);
         } else {
             // DESIGN: New preset — prompt for title with blank input
             overlay.remove();
-            openTitlePrompt(newText);
+            openTitlePrompt(newText, null, -1, editCat);
         }
     };
 
@@ -419,7 +694,9 @@ function openPresetEditor(text, editIndex) {
 // DESIGN: Title prompt for saving presets (new or existing).
 // For existing presets, pre-fills with current name so user can keep or change it.
 // For new presets, shows blank input.
-function openTitlePrompt(presetText, existingName, editIndex) {
+// DESIGN: editCat specifies which category to save into.
+function openTitlePrompt(presetText, existingName, editIndex, editCat) {
+    editCat = editCat || activeCategory;
     const overlay = el('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10002;display:flex;align-items:center;justify-content:center';
     const box = el('div');
@@ -441,16 +718,20 @@ function openTitlePrompt(presetText, existingName, editIndex) {
     saveBtn.onclick = () => {
         const name = input.value.trim();
         if (!name) { input.style.borderColor = '#e74c3c'; return; }
-        if (editIndex >= 0 && editIndex < presets.length) {
+        // DESIGN: Ensure category array exists before saving
+        if (!presets[editCat]) presets[editCat] = [];
+        const catArr = presets[editCat];
+        if (editIndex >= 0 && editIndex < catArr.length) {
             // DESIGN: Update existing preset — change name and/or text
-            presets[editIndex] = { name, text: presetText };
-            setStatus('💾 Updated: ' + name, CLR.ok);
-            log('Preset updated:', name);
+            catArr[editIndex] = { name, text: presetText };
+            setStatus('💾 Updated: ' + name + ' [' + editCat + ']', CLR.ok);
+            log('Preset updated:', name, 'in category:', editCat);
         } else {
-            // DESIGN: Create new preset
-            presets.push({ name, text: presetText });
-            setStatus('💾 New preset: ' + name, CLR.ok);
-            log('New preset created:', name, '(' + presets.length + ' total)');
+            // DESIGN: Create new preset in this category
+            catArr.push({ name, text: presetText });
+            const total = Object.values(presets).reduce((sum, arr) => sum + arr.length, 0);
+            setStatus('💾 New preset: ' + name + ' [' + editCat + ']', CLR.ok);
+            log('New preset created:', name, 'in', editCat, '(' + total + ' total)');
         }
         promptText = presetText;
         savePresets();
@@ -470,8 +751,9 @@ function openTitlePrompt(presetText, existingName, editIndex) {
 }
 
 let presetMenuOpen = false;
-presetArrow.onclick = (e) => { e.stopPropagation(); presetMenuOpen = !presetMenuOpen; presetMenu.style.display = presetMenuOpen ? 'block' : 'none'; };
-presetBtn.onclick = (e) => { e.stopPropagation(); openPresetEditor(promptText, lastSelectedPresetIdx); };
+// DESIGN: Toggle uses 'flex' not 'block' — two-panel layout requires flex container.
+presetArrow.onclick = (e) => { e.stopPropagation(); presetMenuOpen = !presetMenuOpen; presetMenu.style.display = presetMenuOpen ? 'flex' : 'none'; };
+presetBtn.onclick = (e) => { e.stopPropagation(); openPresetEditor(promptText, lastSelectedPreset.idx, lastSelectedPreset.cat); };
 
 presetWrap.appendChild(presetBtn);
 presetWrap.appendChild(presetArrow);

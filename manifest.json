@@ -15,7 +15,7 @@
 
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage"],
-  "host_permissions": ["https://api.replicate.com/*"],
+  "host_permissions": ["https://api.replicate.com/*", "https://api.github.com/*"],
 
   "background": {
     "service_worker": "background.js"

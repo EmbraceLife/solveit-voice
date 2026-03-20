@@ -101,6 +101,22 @@
     }
   });
 
+  // --- Bridge: Gist API (same pattern as Replicate bridge above) ---
+  // DESIGN: widget.js posts gist-fetch, content.js forwards to background.js,
+  // background.js proxies the GitHub API call, response flows back.
+  window.addEventListener('message', async (e) => {
+    if (e.source !== window || e.data?.type !== 'gist-fetch') return;
+    const { url, method, headers, body, requestId } = e.data;
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'gist-fetch', url, method, headers, body
+      });
+      window.postMessage({ type: 'gist-fetch-response', requestId, ...resp }, '*');
+    } catch (err) {
+      window.postMessage({ type: 'gist-fetch-response', requestId, ok: false, error: err.message }, '*');
+    }
+  });
+
   // Guard: don't double-inject if scripts already loaded
   if (document.querySelector('script[data-solveit-voice]')) {
     log('scripts already loaded, skipping');

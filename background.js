@@ -9,9 +9,9 @@
 // → response back to kokoro.js
 // ═══════════════════════════════════════════════════════════════════════
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type !== 'replicate-fetch') return false;
-
+// DESIGN: Generic async fetch proxy. Both Replicate and GitHub API calls
+// route through here — content scripts can't fetch cross-origin directly.
+function proxyFetch(msg, sendResponse) {
   (async () => {
     try {
       const resp = await fetch(msg.url, {
@@ -25,7 +25,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, status: 0, error: e.message });
     }
   })();
+}
 
-  // DESIGN: return true = "I will call sendResponse asynchronously"
-  return true;
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'replicate-fetch' || msg.type === 'gist-fetch') {
+    proxyFetch(msg, sendResponse);
+    // DESIGN: return true = "I will call sendResponse asynchronously"
+    return true;
+  }
+  return false;
 });
